@@ -1,0 +1,31 @@
+# Java / Maven
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Node / Vite
+**/node_modules/
+**/dist/
+**/.vite/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Secrets / certs (avoid accidental commits)
+*.key
+*.pem
+*.pfx
+*.p12
+*nginx*.zip
+_ssl_unzip_*/

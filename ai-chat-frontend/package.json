@@ -1,0 +1,21 @@
+{
+  "name": "ai-chat-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5174 --host",
+    "dev:nohmr": "set VITE_DISABLE_HMR=1&& vite --port 5174 --host",
+    "build": "vite build",
+    "preview": "vite preview --port 5174 --host"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.12.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "vite": "^6.0.0"
+  }
+}
