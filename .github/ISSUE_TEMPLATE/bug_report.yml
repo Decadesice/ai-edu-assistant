@@ -1,0 +1,76 @@
+name: Bug Report
+description: 报告一个可复现的缺陷（建议附日志与截图）
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请尽可能提供可复现信息，便于快速定位。
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本/分支
+      description: 例如 main / v0.2.2 / commit hash
+      placeholder: main
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 影响范围
+      options:
+        - 后端（ai-chat）
+        - 前端（ai-chat-frontend）
+        - Docker Compose/部署
+        - 文档/其它
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: 现象描述
+      description: 发生了什么？预期是什么？
+      placeholder: |
+        实际：
+        预期：
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 尽量按步骤列出（含接口/请求体/截图）
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志/错误信息
+      description: 粘贴关键日志（不要包含密钥/Token）
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: 例如 OS、Docker Desktop、Java 版本、是否使用 compose
+      placeholder: |
+        OS:
+        Docker:
+        Java:
+        运行方式:
+    validations:
+      required: false
+
