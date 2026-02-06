@@ -14,8 +14,8 @@ public class SiliconFlowConfig {
 
     @Bean
     @Qualifier("siliconFlowWebClient")
-    public WebClient siliconFlowWebClient(SiliconFlowProperties properties) {
-        return WebClient.builder()
+    public WebClient siliconFlowWebClient(SiliconFlowProperties properties, WebClient.Builder webClientBuilder) {
+        return webClientBuilder
                 .baseUrl(Objects.requireNonNull(properties.getBaseUrl()))
                 .build();
     }

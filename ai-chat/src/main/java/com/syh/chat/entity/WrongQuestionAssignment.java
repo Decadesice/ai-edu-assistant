@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 @Entity
 @Table(
         name = "wrong_question_assignment",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"userId", "questionId"})
+        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "question_id"})
 )
 public class WrongQuestionAssignment {
 
@@ -15,16 +15,16 @@ public class WrongQuestionAssignment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, name = "user_id")
     private Long userId;
 
-    @Column(nullable = false)
+    @Column(nullable = false, name = "question_id")
     private Long questionId;
 
-    @Column(nullable = true)
+    @Column(nullable = true, name = "group_id")
     private Long groupId;
 
-    @Column(nullable = false)
+    @Column(nullable = false, name = "updated_at")
     private LocalDateTime updatedAt;
 
     public Long getId() {
