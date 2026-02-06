@@ -6,6 +6,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.syh.chat.config.BigModelProperties;
 import com.syh.chat.model.Message;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -28,13 +33,17 @@ public class BigModelService {
 
     private final WebClient webClient;
     private final BigModelProperties properties;
+    private final MeterRegistry meterRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public BigModelService(@Qualifier("bigModelWebClient") WebClient webClient, BigModelProperties properties) {
+    public BigModelService(@Qualifier("bigModelWebClient") WebClient webClient, BigModelProperties properties, MeterRegistry meterRegistry) {
         this.webClient = webClient;
         this.properties = properties;
+        this.meterRegistry = meterRegistry;
     }
 
+    @CircuitBreaker(name = "bigmodel", fallbackMethod = "chatOnceFallback")
+    @Retry(name = "bigmodel")
     public Mono<BigModelReply> chatOnce(List<Message> messages, String modelName) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) {
             return Mono.error(new IllegalStateException("BigModel API Key 未配置，请设置环境变量 BIGMODEL_API_KEY 或 bigmodel.api-key"));
@@ -45,16 +54,34 @@ public class BigModelService {
         body.put("stream", false);
         body.set("messages", buildMessages(messages));
 
-        return webClient.post()
-                .uri("/api/paas/v4/chat/completions")
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(String.class)
-                .map(this::parseReply);
+        return Mono.defer(() -> {
+            Timer.Sample sample = Timer.start(meterRegistry);
+            Timer timer = Timer.builder("ai_model_request_seconds")
+                    .tag("provider", "bigmodel")
+                    .tag("model", modelName == null ? "" : modelName)
+                    .tag("stream", "false")
+                    .register(meterRegistry);
+            Counter failures = Counter.builder("ai_model_request_failures_total")
+                    .tag("provider", "bigmodel")
+                    .tag("model", modelName == null ? "" : modelName)
+                    .tag("stream", "false")
+                    .register(meterRegistry);
+
+            return webClient.post()
+                    .uri("/api/paas/v4/chat/completions")
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .map(this::parseReply)
+                    .doOnError(e -> failures.increment())
+                    .doFinally(sig -> sample.stop(timer));
+        });
     }
 
+    @CircuitBreaker(name = "bigmodel", fallbackMethod = "chatStreamFallback")
+    @Retry(name = "bigmodel")
     public Flux<BigModelDelta> chatStream(List<Message> messages, String modelName) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) {
             return Flux.error(new IllegalStateException("BigModel API Key 未配置，请设置环境变量 BIGMODEL_API_KEY 或 bigmodel.api-key"));
@@ -67,34 +94,58 @@ public class BigModelService {
 
         AtomicBoolean doneEmitted = new AtomicBoolean(false);
 
-        return webClient.post()
-                .uri("/api/paas/v4/chat/completions")
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
-                .bodyValue(body)
-                .exchangeToFlux(resp -> resp.bodyToFlux(DataBuffer.class))
-                .transform(this::splitToLines)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(line -> line.startsWith("data:") ? line.substring(5).trim() : line)
-                .filter(line -> !line.isEmpty())
-                .flatMap(line -> {
-                    if ("[DONE]".equals(line)) {
-                        doneEmitted.set(true);
-                        return Flux.just(BigModelDelta.done());
-                    }
-                    try {
-                        JsonNode root = objectMapper.readTree(line);
-                        BigModelDelta delta = parseStreamDelta(root);
-                        if (delta == null) {
+        return Flux.defer(() -> {
+            Timer.Sample sample = Timer.start(meterRegistry);
+            Timer timer = Timer.builder("ai_model_request_seconds")
+                    .tag("provider", "bigmodel")
+                    .tag("model", modelName == null ? "" : modelName)
+                    .tag("stream", "true")
+                    .register(meterRegistry);
+            Counter failures = Counter.builder("ai_model_request_failures_total")
+                    .tag("provider", "bigmodel")
+                    .tag("model", modelName == null ? "" : modelName)
+                    .tag("stream", "true")
+                    .register(meterRegistry);
+
+            return webClient.post()
+                    .uri("/api/paas/v4/chat/completions")
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
+                    .bodyValue(body)
+                    .exchangeToFlux(resp -> resp.bodyToFlux(DataBuffer.class))
+                    .transform(this::splitToLines)
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(line -> line.startsWith("data:") ? line.substring(5).trim() : line)
+                    .filter(line -> !line.isEmpty())
+                    .flatMap(line -> {
+                        if ("[DONE]".equals(line)) {
+                            doneEmitted.set(true);
+                            return Flux.just(BigModelDelta.done());
+                        }
+                        try {
+                            JsonNode root = objectMapper.readTree(line);
+                            BigModelDelta delta = parseStreamDelta(root);
+                            if (delta == null) {
+                                return Flux.empty();
+                            }
+                            return Flux.just(delta);
+                        } catch (Exception e) {
                             return Flux.empty();
                         }
-                        return Flux.just(delta);
-                    } catch (Exception e) {
-                        return Flux.empty();
-                    }
-                })
-                .concatWith(Mono.defer(() -> doneEmitted.get() ? Mono.empty() : Mono.just(BigModelDelta.done())));
+                    })
+                    .concatWith(Mono.defer(() -> doneEmitted.get() ? Mono.empty() : Mono.just(BigModelDelta.done())))
+                    .doOnError(e -> failures.increment())
+                    .doFinally(sig -> sample.stop(timer));
+        });
+    }
+
+    private Mono<BigModelReply> chatOnceFallback(List<Message> messages, String modelName, Throwable cause) {
+        return Mono.error(new IllegalStateException("大模型服务繁忙或不可用，请稍后重试"));
+    }
+
+    private Flux<BigModelDelta> chatStreamFallback(List<Message> messages, String modelName, Throwable cause) {
+        return Flux.error(new IllegalStateException("大模型服务繁忙或不可用，请稍后重试"));
     }
 
     private Flux<String> splitToLines(Flux<DataBuffer> chunks) {

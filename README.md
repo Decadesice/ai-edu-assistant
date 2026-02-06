@@ -35,6 +35,28 @@ npm run dev -- --host
 
 默认端口：`5174`。
 
+## Docker Compose 一键启动
+
+仓库根目录提供 `docker-compose.yml`，包含 MySQL / Redis / Chroma / 后端 / 前端 / Prometheus / Grafana。
+
+```bash
+docker compose up -d --build
+```
+
+### 入库队列（Redis Streams / Kafka）
+
+- 默认：Redis Streams（`INGEST_QUEUE=redis`）
+- 可选：Kafka + Outbox（`INGEST_QUEUE=kafka`，并配置 `KAFKA_BOOTSTRAP_SERVERS`）
+
+Docker Compose 默认会启用 Kafka 以便本地演示。
+
+如果你的网络访问 Docker Hub 不稳定，可复制 `docker-compose.env.example` 为 `.env` 后再启动（会改用镜像站前缀拉取镜像）：
+
+```bash
+copy docker-compose.env.example .env
+docker compose up -d --build
+```
+
 ## 部署与反向代理（Nginx）
 
 - 推荐 Nginx 托管前端静态文件，并将 `/api/` 反向代理到后端 `127.0.0.1:8081`
@@ -44,4 +66,3 @@ npm run dev -- --host
 
 - 后端快速上手：`ai-chat/QUICKSTART.md`
 - 后端架构说明：`ai-chat/ARCHITECTURE.md`
-

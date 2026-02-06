@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.syh.chat.config.SiliconFlowProperties;
 import com.syh.chat.model.Message;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -35,6 +37,8 @@ public class SiliconFlowService {
         this.properties = properties;
     }
 
+    @CircuitBreaker(name = "siliconflow", fallbackMethod = "chatOnceFallback")
+    @Retry(name = "siliconflow")
     public Mono<String> chatOnce(List<Message> messages, String modelName) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) {
             return Mono.error(new IllegalStateException("SiliconFlow API Key 未配置，请设置环境变量 SiliconFlow_Api_Key / SILICONFLOW_API_KEY 或 siliconflow.api-key"));
@@ -58,6 +62,8 @@ public class SiliconFlowService {
                 .map(this::parseChatOnceContent);
     }
 
+    @CircuitBreaker(name = "siliconflow", fallbackMethod = "chatStreamFallback")
+    @Retry(name = "siliconflow")
     public Flux<BigModelService.BigModelDelta> chatStream(List<Message> messages, String modelName) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) {
             return Flux.error(new IllegalStateException("SiliconFlow API Key 未配置，请设置环境变量 SiliconFlow_Api_Key / SILICONFLOW_API_KEY 或 siliconflow.api-key"));
@@ -102,6 +108,14 @@ public class SiliconFlowService {
                     }
                 })
                 .concatWith(Mono.defer(() -> doneEmitted.get() ? Mono.empty() : Mono.just(BigModelService.BigModelDelta.done())));
+    }
+
+    private Mono<String> chatOnceFallback(List<Message> messages, String modelName, Throwable cause) {
+        return Mono.error(new IllegalStateException("SiliconFlow 服务繁忙或不可用，请稍后重试"));
+    }
+
+    private Flux<BigModelService.BigModelDelta> chatStreamFallback(List<Message> messages, String modelName, Throwable cause) {
+        return Flux.error(new IllegalStateException("SiliconFlow 服务繁忙或不可用，请稍后重试"));
     }
 
     private Flux<String> splitToLines(Flux<DataBuffer> chunks) {

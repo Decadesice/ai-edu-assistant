@@ -14,8 +14,8 @@ public class BigModelConfig {
 
     @Bean
     @Qualifier("bigModelWebClient")
-    public WebClient bigModelWebClient(BigModelProperties properties) {
-        return WebClient.builder()
+    public WebClient bigModelWebClient(BigModelProperties properties, WebClient.Builder webClientBuilder) {
+        return webClientBuilder
                 .baseUrl(Objects.requireNonNull(properties.getBaseUrl()))
                 .build();
     }
