@@ -1,5 +1,24 @@
 # AI 教育辅助学习系统（aismate.tech）
 
+- 在线地址：https://aismate.tech
+- 技术关键词：RAG | 流式对话 | 异步入库（Kafka + Outbox）| 可观测性（Prometheus/Grafana）| 限流/重试/熔断
+
+## 项目亮点
+
+- RAG 知识库问答：PDF 上传 → 分块/向量化入库（Chroma）→ 检索增强生成
+- 流式对话体验：后端流式返回，前端逐段渲染
+- 长任务异步化：入库任务返回 taskId，支持进度查询与事件流（SSE）
+- 可靠投递设计：Kafka(KRaft) + Outbox Pattern，失败可重试、可追溯
+- 可观测性：Actuator/Micrometer 指标 + Prometheus 抓取 + Grafana 看板
+- 一键运行：Docker Compose 编排 MySQL/Redis/Chroma/Kafka/后端/前端/监控组件
+
+## 技术栈
+
+- 后端：Java 17 + Spring Boot 3 + Spring Security(JWT) + JPA/MySQL + Redis + Kafka + Flyway
+- AI/RAG：LangChain4j + Chroma + WebClient（对接大模型）
+- 观测：Actuator + Micrometer + Prometheus + Grafana + 结构化日志
+- 工程化：Docker Compose + GitHub Actions + Testcontainers
+
 本仓库包含一个前后端分离的 Web 应用：
 - **后端**：`ai-chat/`（Spring Boot，提供鉴权、对话、知识库、错题本、题目生成、统计等 API）
 - **前端**：`ai-chat-frontend/`（React + Vite，调用后端 API）
@@ -37,11 +56,18 @@ npm run dev -- --host
 
 ## Docker Compose 一键启动
 
-仓库根目录提供 `docker-compose.yml`，包含 MySQL / Redis / Chroma / 后端 / 前端 / Prometheus / Grafana。
+仓库根目录提供 `docker-compose.yml`，包含 MySQL / Redis / Chroma / Kafka / 后端 / 前端 / Prometheus / Grafana。
 
 ```bash
 docker compose up -d --build
 ```
+
+启动后可访问：
+
+- 前端：http://localhost:5174/
+- Swagger：http://localhost:8081/swagger-ui/index.html
+- Prometheus：http://localhost:9090/
+- Grafana：http://localhost:3000/（默认 admin/admin）
 
 ### 入库队列（Redis Streams / Kafka）
 
