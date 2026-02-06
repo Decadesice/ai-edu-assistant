@@ -2,7 +2,6 @@ package com.syh.chat.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.syh.chat.dto.IngestTaskEvent;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
@@ -14,20 +13,17 @@ public class IngestTaskKafkaConsumer {
 
     private final ObjectMapper objectMapper;
     private final IngestTaskProcessor ingestTaskProcessor;
-    private final String topic;
 
     public IngestTaskKafkaConsumer(
             ObjectMapper objectMapper,
-            IngestTaskProcessor ingestTaskProcessor,
-            @Value("${app.ingest.kafka.topic:ingest-tasks}") String topic
+            IngestTaskProcessor ingestTaskProcessor
     ) {
         this.objectMapper = objectMapper;
         this.ingestTaskProcessor = ingestTaskProcessor;
-        this.topic = topic;
     }
 
     @KafkaListener(
-            topics = "#{__listener.topic}",
+            topics = "${app.ingest.kafka.topic:ingest-tasks}",
             groupId = "${app.ingest.kafka.group:ingest-workers}"
     )
     public void onMessage(String payload, Acknowledgment ack) {
