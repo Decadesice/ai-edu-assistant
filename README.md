@@ -19,6 +19,15 @@
 - 观测：Actuator + Micrometer + Prometheus + Grafana + 结构化日志
 - 工程化：Docker Compose + GitHub Actions + Testcontainers
 
+## Performance（压测基线）
+
+- k6（20 VU / 30s）覆盖链路：注册 / 鉴权会话列表 / 创建会话
+- 压测结果（端到端）：成功率 100%，吞吐 180 req/s，P95 延迟 24ms
+- 观测指标（服务端）：req/s 峰值约 160+，P95 处理耗时约 9ms
+
+![reqs](docs/perf/reqs.png)
+![p95](docs/perf/p95.png)
+
 本仓库包含一个前后端分离的 Web 应用：
 - **后端**：`ai-chat/`（Spring Boot，提供鉴权、对话、知识库、错题本、题目生成、统计等 API）
 - **前端**：`ai-chat-frontend/`（React + Vite，调用后端 API）
