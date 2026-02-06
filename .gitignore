@@ -23,6 +23,9 @@ Thumbs.db
 *.log
 
 # Secrets / certs (avoid accidental commits)
+.env
+.env.*
+!.env.example
 *.key
 *.pem
 *.pfx

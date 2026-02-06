@@ -1,0 +1,115 @@
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:-mysql:8.0.36}
+    environment:
+      MYSQL_ROOT_PASSWORD: 1234
+      MYSQL_DATABASE: ollama_chat
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p1234"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7.2-alpine}
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  chroma:
+    image: ${CHROMA_IMAGE:-chromadb/chroma:0.5.23}
+    ports:
+      - "${CHROMA_PORT:-8000}:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+
+  kafka:
+    image: ${KAFKA_IMAGE:-docker.m.daocloud.io/apache/kafka:3.7.0}
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+  backend:
+    build:
+      context: ./ai-chat
+    environment:
+      APP_PORT: 8081
+      APP_ADDRESS: 0.0.0.0
+      BIGMODEL_API_KEY: ${BIGMODEL_API_KEY:-}
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+      MYSQL_URL: jdbc:mysql://mysql:3306/ollama_chat?useSSL=false&serverTimezone=UTC&characterEncoding=utf8
+      MYSQL_USER: root
+      MYSQL_PASSWORD: 1234
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CHROMA_BASE_URL: http://chroma:8000
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      INGEST_QUEUE: kafka
+      TRACING_SAMPLING_PROBABILITY: 0
+      UPLOAD_DIR: /data/uploads
+    ports:
+      - "8081:8081"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+      kafka:
+        condition: service_started
+    volumes:
+      - backend_data:/data
+
+  frontend:
+    build:
+      context: ./ai-chat-frontend
+    ports:
+      - "5174:80"
+    depends_on:
+      - backend
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.52.0}
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:10.4.2}
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  mysql_data:
+  chroma_data:
+  backend_data:
+  grafana_data:
