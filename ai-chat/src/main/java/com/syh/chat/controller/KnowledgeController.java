@@ -3,6 +3,8 @@ package com.syh.chat.controller;
 import com.syh.chat.dto.KnowledgeDocumentResponse;
 import com.syh.chat.entity.KnowledgeDocument;
 import com.syh.chat.service.KnowledgeIngestService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +16,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/knowledge")
+@Tag(name = "知识库", description = "PDF 文档管理与入库接口")
 public class KnowledgeController {
 
     private final KnowledgeIngestService ingestService;
@@ -27,6 +30,7 @@ public class KnowledgeController {
     }
 
     @GetMapping("/documents")
+    @Operation(summary = "查询文档列表", description = "返回当前用户的知识库文档列表。")
     public List<KnowledgeDocumentResponse> listDocuments(HttpServletRequest httpRequest) {
         Long userId = getUserId(httpRequest);
         return ingestService.listDocuments(userId).stream()

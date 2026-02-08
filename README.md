@@ -78,7 +78,12 @@ docker compose up -d --build
 - Prometheus：http://localhost:9090/
 - Grafana：http://localhost:3000/（默认 admin/admin）
 
-### 入库队列（Redis Streams / Kafka）
+## 截图（占位）
+
+- 主题切换（浅色/深色，TODO）
+  - ![theme-toggle](docs/screenshots/theme-toggle.png)
+
+## 入库队列（Redis Streams / Kafka）
 
 - 默认：Redis Streams（`INGEST_QUEUE=redis`）
 - 可选：Kafka + Outbox（`INGEST_QUEUE=kafka`，并配置 `KAFKA_BOOTSTRAP_SERVERS`）
@@ -101,3 +106,16 @@ docker compose up -d --build
 
 - 后端快速上手：`ai-chat/QUICKSTART.md`
 - 后端架构说明：`ai-chat/ARCHITECTURE.md`
+
+## Git 工作流（项目管理约定）
+
+- 主干保护：`main` 仅允许通过 PR 合并（禁止直接 push），默认 Squash and merge
+- 分支命名：
+  - UI 主题：`feature/ui-theme-redesign`
+  - 定向 RAG：`feature/rag-doc-scope`
+  - Bug 修复：`fix/<short-desc>`
+  - 文档/CI：`chore/<short-desc>`、`docs/<short-desc>`
+- 提交规范：Conventional Commits（如 `feat:` / `fix:` / `docs:` / `test:` / `db:`）
+- PR 要求：描述包含变更概览、验证方式、影响范围/回滚、截图/录屏（UI 变更必需）；CI 通过后再合并
+- Release：语义化版本；`v0.3.0` 用于“RAG 知识库问答”等用户可见功能
+- 安全：禁止提交 `.env`、密钥、token、证书等敏感文件；README 示例 Key 必须使用占位符（如 `YOUR_API_KEY`）

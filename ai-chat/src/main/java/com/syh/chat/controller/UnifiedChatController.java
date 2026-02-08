@@ -5,6 +5,13 @@ import com.syh.chat.dto.ConversationSummaryResponse;
 import com.syh.chat.dto.MessageFragmentRequest;
 import com.syh.chat.model.Message;
 import com.syh.chat.service.UnifiedConversationService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +22,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/unified")
+@Tag(name = "对话", description = "统一对话与会话管理接口")
 public class UnifiedChatController {
 
     private final UnifiedConversationService unifiedConversationService;
@@ -28,6 +36,17 @@ public class UnifiedChatController {
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_PLAIN_VALUE)
+    @Operation(
+            summary = "流式对话（逐行 JSON）",
+            description = "返回 text/plain，每行是一个 JSON 对象。message.thinking / message.content 为增量片段，done=true 表示结束。"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(
+                    mediaType = MediaType.TEXT_PLAIN_VALUE,
+                    examples = @ExampleObject(value = "{\"message\":{\"content\":\"你好\"}}\n{\"done\":true}\n")
+            )),
+            @ApiResponse(responseCode = "400", description = "参数错误")
+    })
     public Flux<String> chatStream(
             @RequestBody ChatRequest request,
             HttpServletRequest httpRequest) {
@@ -174,10 +193,15 @@ public class UnifiedChatController {
         return ResponseEntity.ok("已同步到Redis");
     }
 
+    @Schema(name = "UnifiedChatStreamRequest", description = "流式对话请求体")
     public static class ChatRequest {
+        @Schema(description = "会话 ID；不传则自动创建新会话", example = "c7b6b5b2-6db0-4cfe-9b0a-7d7c2d1e3a4b")
         private String sessionId;
+        @Schema(description = "用户输入文本", example = "请总结第 3 章的核心观点")
         private String message;
+        @Schema(description = "模型名称", example = "glm-4.6v-Flash")
         private String model;
+        @Schema(description = "可选：base64 图片（或 data URL）", example = "data:image/png;base64,...")
         private String image;
 
         public String getSessionId() {
