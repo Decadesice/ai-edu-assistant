@@ -133,7 +133,7 @@ export default function KnowledgeManagement() {
           ) : (
             documents.map((d) => (
               <div className="trow" key={d.id}>
-                <div className="mono" onClick={(e) => handleSummary(d, e)} style={{cursor: 'pointer', color: '#667eea', textDecoration: 'underline'}} title="点击查看摘要">
+                <div className="mono link" onClick={(e) => handleSummary(d, e)} title="点击查看摘要">
                   {d.title}
                 </div>
                 <div>{d.status}</div>
@@ -151,21 +151,20 @@ export default function KnowledgeManagement() {
       </div>
 
       {summaryModal.visible && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
-        }} onClick={() => setSummaryModal({ ...summaryModal, visible: false })}>
-          <div style={{
-            background: 'white', padding: '24px', borderRadius: '16px', maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto'
-          }} onClick={e => e.stopPropagation()}>
-            <h3 style={{marginTop: 0, marginBottom: '16px', fontSize: '20px', fontWeight: 'bold'}}>文档摘要</h3>
-            {summaryModal.loading ? (
-              <div style={{padding: '20px', textAlign: 'center', color: '#666'}}>正在生成摘要，请稍候...</div>
-            ) : (
-              <div style={{lineHeight: '1.6', whiteSpace: 'pre-wrap', color: '#333'}}>{summaryModal.content}</div>
-            )}
-            <div style={{textAlign: 'right', marginTop: '20px'}}>
-              <button className="primary-btn" onClick={() => setSummaryModal({ ...summaryModal, visible: false })}>关闭</button>
+        <div className="modal-backdrop" onClick={() => setSummaryModal({ ...summaryModal, visible: false })}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div className="modal-title">文档摘要</div>
+              <button className="ghost-btn" type="button" onClick={() => setSummaryModal({ ...summaryModal, visible: false })}>
+                关闭
+              </button>
+            </div>
+            <div className="modal-body">
+              {summaryModal.loading ? (
+                <div className="placeholder">正在生成摘要，请稍候...</div>
+              ) : (
+                <div style={{ lineHeight: "1.7", whiteSpace: "pre-wrap" }}>{summaryModal.content}</div>
+              )}
             </div>
           </div>
         </div>

@@ -483,8 +483,11 @@ async function sendMessage() {
     let thinkingStatusDiv = null;
     let foldButton = null;
     let streamStarted = false;
+    let doneSeen = false;
+    let errorSeen = false;
     let renderScheduled = false;
     let lastRenderTime = 0;
+    let pendingLine = "";
 
     function renderAssistantMarkdown(mode = "normal") {
       if (!assistantAnswerDiv) return;
@@ -585,8 +588,9 @@ async function sendMessage() {
       const { done, value } = await reader.read();
       if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n");
+      pendingLine += decoder.decode(value, { stream: true });
+      const lines = pendingLine.split("\n");
+      pendingLine = lines.pop() || "";
 
       for (const line of lines) {
         if (!line.trim()) continue;
@@ -607,11 +611,13 @@ async function sendMessage() {
           if (data.type === "error" || data.error) {
             hideTyping();
             showError(data.message || data.error);
+            errorSeen = true;
             sendBtn.disabled = false;
             continue;
           }
 
           if (data.type === "done" || data.done === true) {
+            doneSeen = true;
             hideTyping();
             finalizeThinkingIfNeeded();
             if (assistantMessageDiv) {
@@ -667,6 +673,21 @@ async function sendMessage() {
           console.error("Parse error:", e, "Line:", line);
         }
       }
+    }
+
+    if (pendingLine.trim()) {
+      try {
+        const data = JSON.parse(pendingLine);
+        if (data.type === "error" || data.error) {
+          hideTyping();
+          showError(data.message || data.error);
+          errorSeen = true;
+        }
+      } catch {}
+    }
+
+    if (doneSeen && !streamStarted && !assistantMessage && !errorSeen) {
+      showError("模型未返回任何内容，请稍后重试或切换模型");
     }
   } catch (error) {
     hideTyping();
