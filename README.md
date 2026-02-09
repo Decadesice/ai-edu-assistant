@@ -78,11 +78,6 @@ docker compose up -d --build
 - Prometheus：http://localhost:9090/
 - Grafana：http://localhost:3000/（默认 admin/admin）
 
-## 截图（占位）
-
-- 主题切换（浅色/深色，TODO）
-  - ![theme-toggle](docs/screenshots/theme-toggle.png)
-
 ## 入库队列（Redis Streams / Kafka）
 
 - 默认：Redis Streams（`INGEST_QUEUE=redis`）
