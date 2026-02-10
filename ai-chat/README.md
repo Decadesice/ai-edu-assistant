@@ -36,7 +36,28 @@ mvn clean package
 java -jar target/*.jar
 ```
 
+## Quick Verify
+
+### 1) 跑测试
+
+```bash
+mvn test
+```
+
+说明：
+- Docker 可用时会跑 Testcontainers 集成测试（例如 `IngestRedisStreamReliabilityIT`）。
+
+### 2) 验证异步入库可靠性（失败→重试→死信）
+
+- 文档与复现步骤见：`docs/reliability.md`
+- 典型验证入口：
+  - `POST /api/knowledge/documents/upload-async`（拿到 taskId）
+  - `GET /api/knowledge/tasks/{taskId}`
+  - `GET /api/knowledge/tasks/{taskId}/events`（SSE）
+  - `/actuator/prometheus`（指标）
+
 ## 相关文档
 
 - 快速上手：`QUICKSTART.md`
 - 架构说明：`ARCHITECTURE.md`
+- 异步入库可靠性：`docs/reliability.md`

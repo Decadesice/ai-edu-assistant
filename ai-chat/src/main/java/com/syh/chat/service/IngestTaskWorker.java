@@ -14,7 +14,9 @@ import org.springframework.data.redis.stream.Subscription;
 import org.springframework.stereotype.Component;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @Component
@@ -49,8 +51,8 @@ public class IngestTaskWorker {
     public void start() {
         ensureGroup();
         this.subscription = container.receive(
-                Consumer.from(groupName, consumerName),
-                StreamOffset.create(streamKey, ReadOffset.lastConsumed()),
+                Consumer.from(Objects.requireNonNull(groupName), Objects.requireNonNull(consumerName)),
+                StreamOffset.create(Objects.requireNonNull(streamKey), ReadOffset.lastConsumed()),
                 this::handleMessage
         );
         container.start();
@@ -65,15 +67,21 @@ public class IngestTaskWorker {
     }
 
     private void ensureGroup() {
-        Boolean exists = stringRedisTemplate.hasKey(streamKey);
+        Boolean exists = stringRedisTemplate.hasKey(Objects.requireNonNull(streamKey));
         if (exists == null || !exists) {
-            RecordId rid = stringRedisTemplate.opsForStream().add(streamKey, Map.of("init", "1"));
+            Map<String, String> init = new HashMap<>();
+            init.put("init", "1");
+            RecordId rid = stringRedisTemplate.opsForStream().add(Objects.requireNonNull(streamKey), init);
             if (rid != null) {
-                stringRedisTemplate.opsForStream().delete(streamKey, rid);
+                stringRedisTemplate.opsForStream().delete(Objects.requireNonNull(streamKey), rid);
             }
         }
         try {
-            stringRedisTemplate.opsForStream().createGroup(streamKey, ReadOffset.from("0-0"), groupName);
+            stringRedisTemplate.opsForStream().createGroup(
+                    Objects.requireNonNull(streamKey),
+                    ReadOffset.from("0-0"),
+                    Objects.requireNonNull(groupName)
+            );
         } catch (Exception ignored) {
         }
     }
@@ -101,15 +109,21 @@ public class IngestTaskWorker {
         }
 
         try {
-            ingestTaskProcessor.process(taskId, userId, documentId, filePath);
-        } finally {
-            acknowledge(record);
+            IngestTaskProcessingResult result = ingestTaskProcessor.process(taskId, userId, documentId, filePath);
+            if (result != null && result.shouldAck()) {
+                acknowledge(record);
+            }
+        } catch (Exception e) {
         }
     }
 
     private void acknowledge(MapRecord<String, String, String> record) {
         try {
-            stringRedisTemplate.opsForStream().acknowledge(streamKey, groupName, record.getId());
+            stringRedisTemplate.opsForStream().acknowledge(
+                    Objects.requireNonNull(streamKey),
+                    Objects.requireNonNull(groupName),
+                    record.getId()
+            );
         } catch (Exception ignored) {
         }
     }

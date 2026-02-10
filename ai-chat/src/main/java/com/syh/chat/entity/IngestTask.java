@@ -39,6 +39,15 @@ public class IngestTask {
     @Column(columnDefinition = "LONGTEXT")
     private String errorMessage;
 
+    @Column(nullable = false, name = "attempt_count")
+    private Integer attemptCount;
+
+    @Column(name = "next_retry_at")
+    private LocalDateTime nextRetryAt;
+
+    @Column(columnDefinition = "LONGTEXT", name = "last_error")
+    private String lastError;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -115,6 +124,30 @@ public class IngestTask {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public Integer getAttemptCount() {
+        return attemptCount;
+    }
+
+    public void setAttemptCount(Integer attemptCount) {
+        this.attemptCount = attemptCount;
+    }
+
+    public LocalDateTime getNextRetryAt() {
+        return nextRetryAt;
+    }
+
+    public void setNextRetryAt(LocalDateTime nextRetryAt) {
+        this.nextRetryAt = nextRetryAt;
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
+    public void setLastError(String lastError) {
+        this.lastError = lastError;
     }
 
     public LocalDateTime getCreatedAt() {

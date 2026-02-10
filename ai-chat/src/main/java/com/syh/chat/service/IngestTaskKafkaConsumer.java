@@ -29,8 +29,12 @@ public class IngestTaskKafkaConsumer {
     public void onMessage(String payload, Acknowledgment ack) {
         try {
             IngestTaskEvent evt = objectMapper.readValue(payload, IngestTaskEvent.class);
-            ingestTaskProcessor.process(evt.getTaskId(), evt.getUserId(), evt.getDocumentId(), evt.getFilePath());
-            ack.acknowledge();
+            IngestTaskProcessingResult result = ingestTaskProcessor.process(evt.getTaskId(), evt.getUserId(), evt.getDocumentId(), evt.getFilePath());
+            if (result != null && result.shouldAck()) {
+                ack.acknowledge();
+                return;
+            }
+            throw new IllegalStateException("task not acknowledged due to retry");
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

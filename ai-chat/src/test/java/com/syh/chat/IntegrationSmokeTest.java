@@ -16,6 +16,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
+@SuppressWarnings("resource")
 public class IntegrationSmokeTest {
 
     @Container
@@ -38,6 +39,7 @@ public class IntegrationSmokeTest {
         registry.add("bigmodel.api-key", () -> "dummy");
         registry.add("siliconflow.api-key", () -> "dummy");
         registry.add("chroma.base-url", () -> "http://127.0.0.1:8000");
+        registry.add("app.ingest.queue", () -> "disabled");
     }
 
     @LocalServerPort

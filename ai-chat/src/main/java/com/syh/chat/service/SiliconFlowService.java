@@ -110,10 +110,12 @@ public class SiliconFlowService {
                 .concatWith(Mono.defer(() -> doneEmitted.get() ? Mono.empty() : Mono.just(BigModelService.BigModelDelta.done())));
     }
 
+    @SuppressWarnings("unused")
     private Mono<String> chatOnceFallback(List<Message> messages, String modelName, Throwable cause) {
         return Mono.error(new IllegalStateException("SiliconFlow 服务繁忙或不可用，请稍后重试"));
     }
 
+    @SuppressWarnings("unused")
     private Flux<BigModelService.BigModelDelta> chatStreamFallback(List<Message> messages, String modelName, Throwable cause) {
         return Flux.error(new IllegalStateException("SiliconFlow 服务繁忙或不可用，请稍后重试"));
     }

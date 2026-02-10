@@ -8,11 +8,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Objects;
 
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
@@ -27,10 +29,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain)
             throws ServletException, IOException {
-        String path = request.getRequestURI();
-        String method = request.getMethod();
+        String path = Objects.requireNonNull(request.getRequestURI());
+        String method = Objects.requireNonNull(request.getMethod());
 
         if (HttpMethod.POST.matches(method) && "/api/unified/chat/stream".equals(path)) {
             if (!allow(request, "model", properties.getModel())) {

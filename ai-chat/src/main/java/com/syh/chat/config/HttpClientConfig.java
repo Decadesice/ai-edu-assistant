@@ -9,6 +9,7 @@ import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import reactor.netty.http.client.HttpClient;
 
 import java.time.Duration;
+import java.util.Objects;
 
 @Configuration
 public class HttpClientConfig {
@@ -21,11 +22,11 @@ public class HttpClientConfig {
         HttpClient httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, connectTimeoutMs)
                 .responseTimeout(Duration.ofMillis(responseTimeoutMs));
-        return new ReactorClientHttpConnector(httpClient);
+        return new ReactorClientHttpConnector(Objects.requireNonNull(httpClient));
     }
 
     @Bean
     public WebClientCustomizer webClientCustomizer(ReactorClientHttpConnector connector) {
-        return builder -> builder.clientConnector(connector);
+        return builder -> builder.clientConnector(Objects.requireNonNull(connector));
     }
 }

@@ -21,7 +21,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -88,6 +90,9 @@ public class AsyncIngestTaskService {
         task.setProcessedSegments(0);
         task.setTotalSegments(0);
         task.setFilePath(filePath);
+        task.setAttemptCount(0);
+        task.setNextRetryAt(null);
+        task.setLastError(null);
         task.setCreatedAt(LocalDateTime.now());
         task.setUpdatedAt(LocalDateTime.now());
         taskRepository.save(task);
@@ -109,6 +114,8 @@ public class AsyncIngestTaskService {
                 outbox.setPayload(payload);
                 outbox.setStatus("NEW");
                 outbox.setAttemptCount(0);
+                outbox.setNextRetryAt(null);
+                outbox.setLastError(null);
                 outbox.setCreatedAt(LocalDateTime.now());
                 outboxEventRepository.save(outbox);
             } catch (Exception e) {
@@ -116,13 +123,14 @@ public class AsyncIngestTaskService {
             }
             return;
         }
+        Map<String, String> payload = new HashMap<>();
+        payload.put("taskId", String.valueOf(taskId));
+        payload.put("userId", String.valueOf(userId));
+        payload.put("documentId", String.valueOf(documentId));
+        payload.put("filePath", String.valueOf(filePath));
+
         RecordId recordId = stringRedisTemplate.opsForStream().add(
-                MapRecord.create(streamKey, Map.of(
-                        "taskId", taskId,
-                        "userId", String.valueOf(userId),
-                        "documentId", String.valueOf(documentId),
-                        "filePath", filePath
-                ))
+                MapRecord.create(Objects.requireNonNull(streamKey), payload)
         );
         if (recordId == null) {
             throw new IllegalStateException("任务入队失败");
@@ -155,6 +163,9 @@ public class AsyncIngestTaskService {
                 task.getProcessedSegments(),
                 task.getTotalSegments(),
                 task.getErrorMessage(),
+                task.getAttemptCount(),
+                task.getNextRetryAt(),
+                task.getLastError(),
                 task.getUpdatedAt()
         );
     }

@@ -140,10 +140,12 @@ public class BigModelService {
         });
     }
 
+    @SuppressWarnings("unused")
     private Mono<BigModelReply> chatOnceFallback(List<Message> messages, String modelName, Throwable cause) {
         return Mono.error(new IllegalStateException("大模型服务繁忙或不可用，请稍后重试"));
     }
 
+    @SuppressWarnings("unused")
     private Flux<BigModelDelta> chatStreamFallback(List<Message> messages, String modelName, Throwable cause) {
         return Flux.error(new IllegalStateException("大模型服务繁忙或不可用，请稍后重试"));
     }

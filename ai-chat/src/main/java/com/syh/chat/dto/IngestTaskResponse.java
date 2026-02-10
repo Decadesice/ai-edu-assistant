@@ -10,12 +10,15 @@ public class IngestTaskResponse {
     private Integer processedSegments;
     private Integer totalSegments;
     private String errorMessage;
+    private Integer attemptCount;
+    private LocalDateTime nextRetryAt;
+    private String lastError;
     private LocalDateTime updatedAt;
 
     public IngestTaskResponse() {
     }
 
-    public IngestTaskResponse(String taskId, Long documentId, String status, Integer progress, Integer processedSegments, Integer totalSegments, String errorMessage, LocalDateTime updatedAt) {
+    public IngestTaskResponse(String taskId, Long documentId, String status, Integer progress, Integer processedSegments, Integer totalSegments, String errorMessage, Integer attemptCount, LocalDateTime nextRetryAt, String lastError, LocalDateTime updatedAt) {
         this.taskId = taskId;
         this.documentId = documentId;
         this.status = status;
@@ -23,6 +26,9 @@ public class IngestTaskResponse {
         this.processedSegments = processedSegments;
         this.totalSegments = totalSegments;
         this.errorMessage = errorMessage;
+        this.attemptCount = attemptCount;
+        this.nextRetryAt = nextRetryAt;
+        this.lastError = lastError;
         this.updatedAt = updatedAt;
     }
 
@@ -80,6 +86,30 @@ public class IngestTaskResponse {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public Integer getAttemptCount() {
+        return attemptCount;
+    }
+
+    public void setAttemptCount(Integer attemptCount) {
+        this.attemptCount = attemptCount;
+    }
+
+    public LocalDateTime getNextRetryAt() {
+        return nextRetryAt;
+    }
+
+    public void setNextRetryAt(LocalDateTime nextRetryAt) {
+        this.nextRetryAt = nextRetryAt;
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
+    public void setLastError(String lastError) {
+        this.lastError = lastError;
     }
 
     public LocalDateTime getUpdatedAt() {

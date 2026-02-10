@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.Objects;
 import java.io.IOException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -58,7 +59,7 @@ public class IngestTaskController {
         ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
             try {
                 IngestTaskResponse status = asyncIngestTaskService.get(userId, taskId);
-                emitter.send(SseEmitter.event().name("status").data(status));
+                emitter.send(SseEmitter.event().name("status").data(Objects.requireNonNull(status)));
                 if ("SUCCEEDED".equalsIgnoreCase(status.getStatus()) || "FAILED".equalsIgnoreCase(status.getStatus())) {
                     emitter.complete();
                 }

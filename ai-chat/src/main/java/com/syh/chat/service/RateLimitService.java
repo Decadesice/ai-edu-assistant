@@ -2,14 +2,16 @@ package com.syh.chat.service;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
+import java.util.Collections;
+import java.util.Objects;
 
 @Service
 public class RateLimitService {
 
-    private static final DefaultRedisScript<Long> FIXED_WINDOW_SCRIPT = new DefaultRedisScript<>(
+    private static final RedisScript<Long> FIXED_WINDOW_SCRIPT = new DefaultRedisScript<>(
             "local current = redis.call('INCR', KEYS[1])\n" +
                     "if current == 1 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end\n" +
                     "if current > tonumber(ARGV[1]) then return 0 else return 1 end\n",
@@ -24,8 +26,8 @@ public class RateLimitService {
 
     public boolean allow(String key, int limit, int windowSeconds) {
         Long allowed = redisTemplate.execute(
-                FIXED_WINDOW_SCRIPT,
-                List.of(key),
+                Objects.requireNonNull(FIXED_WINDOW_SCRIPT),
+                Objects.requireNonNull(Collections.singletonList(Objects.requireNonNull(key))),
                 String.valueOf(limit),
                 String.valueOf(windowSeconds)
         );

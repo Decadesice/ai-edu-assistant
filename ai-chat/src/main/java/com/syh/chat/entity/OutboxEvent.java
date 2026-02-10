@@ -39,6 +39,9 @@ public class OutboxEvent {
     @Column(nullable = true, columnDefinition = "TEXT", name = "last_error")
     private String lastError;
 
+    @Column(nullable = true, name = "next_retry_at")
+    private LocalDateTime nextRetryAt;
+
     public String getId() {
         return id;
     }
@@ -109,5 +112,13 @@ public class OutboxEvent {
 
     public void setLastError(String lastError) {
         this.lastError = lastError;
+    }
+
+    public LocalDateTime getNextRetryAt() {
+        return nextRetryAt;
+    }
+
+    public void setNextRetryAt(LocalDateTime nextRetryAt) {
+        this.nextRetryAt = nextRetryAt;
     }
 }

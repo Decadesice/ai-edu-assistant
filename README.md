@@ -28,6 +28,33 @@
 ![reqs](docs/perf/reqs.png)
 ![p95](docs/perf/p95.png)
 
+## Quick Verify（给简历官/面试官）
+
+### 1) 跑后端测试（包含可靠性用例）
+
+```bash
+mvn -f ai-chat/pom.xml test
+```
+
+说明：
+- Docker 可用时会跑 Testcontainers 集成测试（如 Redis Streams 失败→重试→死信）。
+
+### 2) 启动一套本地环境（Docker Compose）
+
+```bash
+docker compose up -d --build
+```
+
+启动后可访问：
+- Swagger：http://localhost:8081/swagger-ui/index.html
+- Prometheus：http://localhost:9090/
+- Grafana：http://localhost:3000/（默认 admin/admin）
+
+### 3) 验证可靠性与指标
+
+- 异步入库可靠性（Redis Streams + Kafka Outbox）：[reliability.md](ai-chat/docs/reliability.md)
+- Prometheus 指标：访问 `http://localhost:8081/actuator/prometheus`，检索 `ingest_task_process_total`、`ingest_stream_length`、`ingest_stream_pending`、`outbox_backlog`、`outbox_publish_total`
+
 本仓库包含一个前后端分离的 Web 应用：
 - **后端**：`ai-chat/`（Spring Boot，提供鉴权、对话、知识库、错题本、题目生成、统计等 API）
 - **前端**：`ai-chat-frontend/`（React + Vite，调用后端 API）
@@ -101,6 +128,7 @@ docker compose up -d --build
 
 - 后端快速上手：`ai-chat/QUICKSTART.md`
 - 后端架构说明：`ai-chat/ARCHITECTURE.md`
+- 异步入库可靠性：`ai-chat/docs/reliability.md`
 
 ## Git 工作流（项目管理约定）
 
