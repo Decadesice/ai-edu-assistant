@@ -55,6 +55,15 @@ docker compose up -d --build
 - 异步入库可靠性（Redis Streams + Kafka Outbox）：[reliability.md](ai-chat/docs/reliability.md)
 - Prometheus 指标：访问 `http://localhost:8081/actuator/prometheus`，检索 `ingest_task_process_total`、`ingest_stream_length`、`ingest_stream_pending`、`outbox_backlog`、`outbox_publish_total`
 
+### 4) 证据截图（验真）
+
+已整理 4 张“可复现/可验真”的关键截图：见 [docs/证据截图](docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE)。
+
+![IngestRedisStreamReliabilityIT](docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/IngestRedisStreamReliabilityIT.png)
+![outbox_publish_total](docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/outbox_publish_total.png)
+![DEAD + attemptCount=2](docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/DEAD%20%2B%20attemptCount%3D2.png)
+![XLEN ingesttasksdlq = 4 + ingest_task_transition](docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/XLEN%20ingesttasksdlq%20%3D%204%20%2B%20ingest_task_transition.png)
+
 本仓库包含一个前后端分离的 Web 应用：
 - **后端**：`ai-chat/`（Spring Boot，提供鉴权、对话、知识库、错题本、题目生成、统计等 API）
 - **前端**：`ai-chat-frontend/`（React + Vite，调用后端 API）
@@ -104,6 +113,11 @@ docker compose up -d --build
 - Swagger：http://localhost:8081/swagger-ui/index.html
 - Prometheus：http://localhost:9090/
 - Grafana：http://localhost:3000/（默认 admin/admin）
+
+## 截图（占位）
+
+- 主题切换（浅色/深色，TODO）
+  - ![theme-toggle](docs/screenshots/theme-toggle.png)
 
 ## 入库队列（Redis Streams / Kafka）
 

@@ -20,7 +20,7 @@
 - `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB`
 - `CHROMA_BASE_URL`
 - `BIGMODEL_API_KEY`（可选）
-- `SiliconFlow_Api_Key` / `SILICONFLOW_API_KEY`（可选）
+- `SILICONFLOW_API_KEY`（可选）
 - `CORS_ALLOWED_ORIGINS` / `CORS_ALLOWED_ORIGIN_PATTERNS`（当你前后端跨域部署时需要）
 
 ## 启动
@@ -55,6 +55,15 @@ mvn test
   - `GET /api/knowledge/tasks/{taskId}`
   - `GET /api/knowledge/tasks/{taskId}/events`（SSE）
   - `/actuator/prometheus`（指标）
+
+### 3) 证据截图（验真）
+
+仓库根目录 `docs/证据截图` 已包含“测试通过 / outbox 指标 / DEAD 状态 / DLQ+transition”四张验真截图（本 README 直接展示如下）：
+
+![IngestRedisStreamReliabilityIT](../docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/IngestRedisStreamReliabilityIT.png)
+![outbox_publish_total](../docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/outbox_publish_total.png)
+![DEAD + attemptCount=2](../docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/DEAD%20%2B%20attemptCount%3D2.png)
+![XLEN ingesttasksdlq = 4 + ingest_task_transition](../docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/XLEN%20ingesttasksdlq%20%3D%204%20%2B%20ingest_task_transition.png)
 
 ## 相关文档
 
