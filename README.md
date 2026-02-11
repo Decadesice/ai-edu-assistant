@@ -12,6 +12,52 @@
 - 可观测性：Actuator/Micrometer 指标 + Prometheus 抓取 + Grafana 看板
 - 一键运行：Docker Compose 编排 MySQL/Redis/Chroma/Kafka/后端/前端/监控组件
 
+## 异步入库链路一图（上传→入队→消费→状态机→DLQ→SSE/查询→指标）
+
+详细图文（含时序图）：[docs/async-ingest-diagram.md](docs/async-ingest-diagram.md)
+
+```mermaid
+flowchart LR
+  U[用户/前端] -->|上传 async| API[POST /api/knowledge/documents/upload-async]
+  U -->|查询| Q1[GET /api/knowledge/tasks/{taskId}]
+  U -->|SSE| Q2[GET /api/knowledge/tasks/{taskId}/events]
+  U -->|指标| M1[GET /actuator/prometheus]
+
+  API --> SVC[AsyncIngestTaskService]
+  SVC --> DOC[(knowledge_document)]
+  SVC --> TASK[(ingest_task)]
+  SVC -->|Redis| RS[(Redis Stream ingest:tasks)]
+  SVC -->|Kafka Outbox| OB[(outbox_event)]
+
+  RS --> W1[IngestTaskWorker]
+  W1 --> P[IngestTaskProcessor]
+  W1 -.失败不 ack, 留在 PEL.- RS
+  RC[Reclaimer] --> RS
+
+  OB --> PUB[KafkaOutboxPublisher]
+  PUB --> K[(Kafka topic)]
+  K --> KC[KafkaConsumer]
+  KC --> P
+
+  P --> ING[KnowledgeIngestService]
+  ING --> CH[(Chroma)]
+  ING --> SEG[(knowledge_segment)]
+  P --> TASK
+
+  subgraph SM[ingest_task 状态机]
+    QUEUED --> RUNNING --> SUCCEEDED
+    RUNNING --> RETRYING --> RUNNING
+    RETRYING --> DEAD
+  end
+  TASK --- SM
+  DEAD --> DLQ[(Redis Stream ingest:tasks:dlq)]
+
+  Q1 --> TASK
+  Q2 --> TASK
+  M1 --> RS
+  M1 --> OB
+```
+
 ## 技术栈
 
 - 后端：Java 17 + Spring Boot 3 + Spring Security(JWT) + JPA/MySQL + Redis + Kafka + Flyway
@@ -28,7 +74,7 @@
 ![reqs](docs/perf/reqs.png)
 ![p95](docs/perf/p95.png)
 
-## Quick Verify
+## Quick Verify（给简历官/面试官）
 
 ### 1) 跑后端测试（包含可靠性用例）
 
@@ -114,10 +160,6 @@ docker compose up -d --build
 - Prometheus：http://localhost:9090/
 - Grafana：http://localhost:3000/（默认 admin/admin）
 
-## 截图（占位）
-
-- 主题切换（浅色/深色，TODO）
-  - ![theme-toggle](docs/screenshots/theme-toggle.png)
 
 ## 入库队列（Redis Streams / Kafka）
 

@@ -49,6 +49,7 @@ mvn test
 
 ### 2) 验证异步入库可靠性（失败→重试→死信）
 
+- 一图看懂链路（上传→入队→消费→状态机→DLQ→SSE/查询→指标）：[docs/async-ingest-diagram.md](../docs/async-ingest-diagram.md)
 - 文档与复现步骤见：`docs/reliability.md`
 - 典型验证入口：
   - `POST /api/knowledge/documents/upload-async`（拿到 taskId）
