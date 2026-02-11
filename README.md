@@ -28,7 +28,7 @@
 ![reqs](docs/perf/reqs.png)
 ![p95](docs/perf/p95.png)
 
-## Quick Verify（给简历官/面试官）
+## Quick Verify
 
 ### 1) 跑后端测试（包含可靠性用例）
 
