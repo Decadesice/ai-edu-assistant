@@ -6,16 +6,11 @@
 - **JDK 17+**: [下载地址](https://www.oracle.com/java/technologies/downloads/)
 - **MySQL 8.0+**: [下载地址](https://dev.mysql.com/downloads/mysql/)
 - **Redis 7.x**: [下载地址](https://redis.io/download)
-- **Ollama**: [下载地址](https://ollama.com/)
 - **Maven 3.6+**: [下载地址](https://maven.apache.org/download.cgi)
-
-### 2. 安装Ollama模型
-```bash
-# 安装Ollama后，下载Qwen3模型
-ollama pull qwen3-vl:2b
-# 或
-ollama pull qwen3:8b
-```
+ 
+可选：
+- 大模型 API Key（用于对话/摘要/生成等能力）：`BIGMODEL_API_KEY` / `SILICONFLOW_API_KEY`
+ 
 
 ## 数据库配置
 
@@ -290,18 +285,6 @@ redis-cli ping
 # 如果返回PONG，说明Redis正常
 ```
 
-### 4. Ollama无响应
-```bash
-# 检查Ollama服务
-ollama list
-
-# 如果没有模型，下载模型
-ollama pull qwen3-vl:2b
-
-# 测试模型
-ollama run qwen3-vl:2b
-```
-
 ## 日志查看
 
 ### 应用日志
@@ -354,7 +337,7 @@ GROUP BY c.id;
 ### 1. 启用调试模式
 在 `application.properties` 中设置：
 ```properties
-logging.level.com.ollama.chat=DEBUG
+logging.level.com.syh.chat=DEBUG
 logging.level.org.hibernate.SQL=DEBUG
 logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE
 ```

@@ -589,7 +589,7 @@ jwt.expiration=86400000  # 24小时
 | 缓存 | Redis 7.x | 会话缓存 |
 | 认证 | JWT + Spring Security | 用户鉴权 |
 | ORM | Spring Data JPA | 数据库操作 |
-| 大模型 | Ollama (Qwen3) | AI对话 |
+| 大模型 | BigModel / SiliconFlow（网络 API） | AI对话 |
 | LangChain | LangChain4j | 会话记忆管理 |
 | 工具 | Lombok | 简化代码 |
 
@@ -601,13 +601,12 @@ jwt.expiration=86400000  # 24小时
 - JDK 17+
 - MySQL 8.0+
 - Redis 7.x
-- Ollama服务（已安装Qwen3模型）
+- 可选：大模型 API Key（BigModel / SiliconFlow）
 
 ### 10.2 启动步骤
 1. 创建MySQL数据库：`CREATE DATABASE ollama_chat;`
 2. 启动Redis服务
-3. 启动Ollama服务
-4. 运行应用：`mvn spring-boot:run`
+3. 运行应用：`mvn spring-boot:run`
 
 ### 10.3 初始化
 - 首次启动自动创建表结构
@@ -643,7 +642,7 @@ jwt.expiration=86400000  # 24小时
 1. **Token过期**：重新登录获取新Token
 2. **Redis连接失败**：检查Redis服务状态
 3. **MySQL连接失败**：检查数据库配置和网络
-4. **Ollama无响应**：检查Ollama服务状态和模型加载
+4. **大模型调用失败**：检查 API Key、网络连通性、限流/熔断配置与下游状态
 
 ### 13.2 日志查看
 ```bash

@@ -1,39 +1,91 @@
 services:
   mysql:
     image: ${MYSQL_IMAGE:-mysql:8.0.36}
+    restart: unless-stopped
+    cpus: "1.0"
+    mem_limit: 384m
     environment:
-      MYSQL_ROOT_PASSWORD: 1234
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-1234}
       MYSQL_DATABASE: ollama_chat
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
-    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    command:
+      [
+        "--character-set-server=utf8mb4",
+        "--collation-server=utf8mb4_unicode_ci",
+        "--innodb-buffer-pool-size=128M",
+        "--max_connections=50"
+      ]
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p1234"]
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "127.0.0.1",
+          "-p${MYSQL_ROOT_PASSWORD:-1234}"
+        ]
       interval: 5s
       timeout: 3s
       retries: 20
     volumes:
       - mysql_data:/var/lib/mysql
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 384M
 
   redis:
     image: ${REDIS_IMAGE:-redis:7.2-alpine}
+    restart: unless-stopped
+    cpus: "0.5"
+    mem_limit: 128m
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "96mb",
+        "--maxmemory-policy",
+        "noeviction"
+      ]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
 
   chroma:
     image: ${CHROMA_IMAGE:-chromadb/chroma:0.5.23}
+    restart: unless-stopped
+    cpus: "0.8"
+    mem_limit: 256m
     ports:
-      - "${CHROMA_PORT:-8000}:8000"
+      - "127.0.0.1:${CHROMA_PORT:-8000}:8000"
     volumes:
       - chroma_data:/chroma/chroma
+    deploy:
+      resources:
+        limits:
+          cpus: "0.8"
+          memory: 256M
 
   kafka:
     image: ${KAFKA_IMAGE:-docker.m.daocloud.io/apache/kafka:3.7.0}
+    restart: unless-stopped
+    profiles: ["full"]
     ports:
       - "${KAFKA_PORT:-9092}:9092"
     environment:
@@ -48,23 +100,36 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
 
   backend:
     build:
       context: ./ai-chat
+    restart: unless-stopped
+    cpus: "1.0"
+    mem_limit: 512m
     environment:
       APP_PORT: 8081
       APP_ADDRESS: 0.0.0.0
+      JAVA_TOOL_OPTIONS: "-Xms128m -Xmx384m -XX:ActiveProcessorCount=2"
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 10
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: 2
+      SERVER_TOMCAT_THREADS_MAX: 50
+      SERVER_TOMCAT_ACCEPT_COUNT: 100
       BIGMODEL_API_KEY: ${BIGMODEL_API_KEY:-}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
       MYSQL_URL: jdbc:mysql://mysql:3306/ollama_chat?useSSL=false&serverTimezone=UTC&characterEncoding=utf8
       MYSQL_USER: root
-      MYSQL_PASSWORD: 1234
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-1234}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       CHROMA_BASE_URL: http://chroma:8000
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      INGEST_QUEUE: kafka
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INGEST_QUEUE: ${INGEST_QUEUE:-redis}
       TRACING_SAMPLING_PROBABILITY: 0
       UPLOAD_DIR: /data/uploads
     ports:
@@ -76,37 +141,62 @@ services:
         condition: service_healthy
       chroma:
         condition: service_started
-      kafka:
-        condition: service_started
     volumes:
       - backend_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
 
   frontend:
     build:
       context: ./ai-chat-frontend
+    restart: unless-stopped
+    cpus: "0.5"
+    mem_limit: 64m
     ports:
       - "5174:80"
     depends_on:
       - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 64M
 
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.52.0}
+    restart: unless-stopped
+    profiles: ["monitoring"]
     ports:
       - "9090:9090"
     volumes:
       - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
   grafana:
     image: ${GRAFANA_IMAGE:-grafana/grafana:10.4.2}
+    restart: unless-stopped
+    profiles: ["monitoring"]
     ports:
       - "3000:3000"
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
     depends_on:
       - prometheus
     volumes:
       - grafana_data:/var/lib/grafana
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 384M
 
 volumes:
   mysql_data:
