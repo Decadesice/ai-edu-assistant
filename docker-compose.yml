@@ -26,11 +26,13 @@ services:
       retries: 20
 
   chroma:
-    image: ${CHROMA_IMAGE:-chromadb/chroma:0.5.23}
+    build:
+      context: ./ops/chroma
+    restart: unless-stopped
     ports:
-      - "${CHROMA_PORT:-8000}:8000"
+      - "127.0.0.1:${CHROMA_PORT:-8000}:8000"
     volumes:
-      - chroma_data:/chroma/chroma
+      - chroma_data:/chroma/data
 
   kafka:
     image: ${KAFKA_IMAGE:-docker.m.daocloud.io/apache/kafka:3.7.0}
@@ -63,10 +65,11 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       CHROMA_BASE_URL: http://chroma:8000
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      INGEST_QUEUE: kafka
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      INGEST_QUEUE: ${INGEST_QUEUE:-redis}
       TRACING_SAMPLING_PROBABILITY: 0
       UPLOAD_DIR: /data/uploads
+      APP_CORS_ALLOWED_ORIGINS: https://aismate.tech,https://www.aismate.tech
     ports:
       - "8081:8081"
     depends_on:
@@ -75,8 +78,6 @@ services:
       redis:
         condition: service_healthy
       chroma:
-        condition: service_started
-      kafka:
         condition: service_started
     volumes:
       - backend_data:/data
