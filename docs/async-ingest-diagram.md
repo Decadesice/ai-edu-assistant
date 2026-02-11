@@ -8,8 +8,8 @@
 flowchart LR
   %% Client
   U[用户/前端] -->|1. 上传 async| API[IngestTaskController<br/>POST /api/knowledge/documents/upload-async]
-  U -->|7. 查询| Q1[GET /api/knowledge/tasks/{taskId}]
-  U -->|8. SSE| Q2[GET /api/knowledge/tasks/{taskId}/events]
+  U -->|7. 查询| Q1[GET /api/knowledge/tasks/:taskId]
+  U -->|8. SSE| Q2[GET /api/knowledge/tasks/:taskId/events]
   U -->|9. 指标| M1[GET /actuator/prometheus]
 
   %% Submit + Persist
@@ -112,7 +112,7 @@ sequenceDiagram
   end
 
   par 查询与指标
-    C->>SSE: GET /tasks/{taskId} 或 /events
+    C->>SSE: GET /tasks/:taskId 或 /events
     SSE->>DB: read ingest_task
     SSE-->>C: status/progress/attemptCount/nextRetryAt/lastError
   and
@@ -120,4 +120,3 @@ sequenceDiagram
     M-->>C: ingest_task_process_total / ingest_stream_length / outbox_backlog ...
   end
 ```
-

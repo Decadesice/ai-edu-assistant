@@ -19,8 +19,8 @@
 ```mermaid
 flowchart LR
   U[用户/前端] -->|上传 async| API[POST /api/knowledge/documents/upload-async]
-  U -->|查询| Q1[GET /api/knowledge/tasks/{taskId}]
-  U -->|SSE| Q2[GET /api/knowledge/tasks/{taskId}/events]
+  U -->|查询| Q1[GET /api/knowledge/tasks/:taskId]
+  U -->|SSE| Q2[GET /api/knowledge/tasks/:taskId/events]
   U -->|指标| M1[GET /actuator/prometheus]
 
   API --> SVC[AsyncIngestTaskService]
@@ -74,7 +74,7 @@ flowchart LR
 ![reqs](docs/perf/reqs.png)
 ![p95](docs/perf/p95.png)
 
-## Quick Verify（给简历官/面试官）
+## Quick Verify
 
 ### 1) 跑后端测试（包含可靠性用例）
 
