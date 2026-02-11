@@ -23,6 +23,14 @@
 - `SILICONFLOW_API_KEY`（可选）
 - `CORS_ALLOWED_ORIGINS` / `CORS_ALLOWED_ORIGIN_PATTERNS`（当你前后端跨域部署时需要）
 
+安全提示：
+- 示例 Key 均为占位符；真实配置建议通过环境变量或本地 `.env` 注入
+- 不要提交任何敏感信息（`.env` / token / 证书 / 密钥 等）
+
+开发环境噪音（tracing 导出失败）：
+- 默认 trace 导出 endpoint 为 `http://127.0.0.1:4318/v1/traces`（OTLP HTTP）
+- 若本地未启动 collector，可设置 `TRACING_SAMPLING_PROBABILITY=0` 关闭采样以避免误解为“系统不稳定”
+
 ## 启动
 
 ```bash

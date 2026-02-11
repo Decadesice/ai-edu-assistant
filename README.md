@@ -58,6 +58,12 @@ flowchart LR
   M1 --> OB
 ```
 
+## License & 免责声明
+
+- License：MIT，见 [LICENSE](LICENSE)
+- 免责声明：本项目为个人学习/演示用途，按“现状”提供，不对稳定性/适用性作任何保证；如用于生产或商用，请自行评估、加固与合规处理
+- 安全说明：仓库中的示例 Key 均为占位符；请使用环境变量或本地 `.env` 注入真实配置，勿提交任何 secrets（`.env` 已在 `.gitignore` 中忽略）
+
 ## 技术栈
 
 - 后端：Java 17 + Spring Boot 3 + Spring Security(JWT) + JPA/MySQL + Redis + Kafka + Flyway
@@ -149,6 +155,12 @@ npm run dev -- --host
 
 仓库根目录提供 `docker-compose.yml`，包含 MySQL / Redis / Chroma / Kafka / 后端 / 前端 / Prometheus / Grafana。
 
+建议先复制环境变量模板（不含敏感信息）：
+
+```bash
+copy .env.example .env
+```
+
 ```bash
 docker compose up -d --build
 ```
@@ -168,12 +180,29 @@ docker compose up -d --build
 
 Docker Compose 默认会启用 Kafka 以便本地演示。
 
-如果你的网络访问 Docker Hub 不稳定，可复制 `docker-compose.env.example` 为 `.env` 后再启动（会改用镜像站前缀拉取镜像）：
+如果你的网络访问 Docker Hub 不稳定，可将 `docker-compose.env.example` 里的镜像站前缀配置合并到你的 `.env`（或直接把其中的 `*_IMAGE` 行复制进去），再启动即可。
+
+## 常见问题（FAQ）
+
+### 1) MySQL 端口冲突（3306 被占用）
+
+Docker Compose 默认使用 `MYSQL_PORT=3306` 映射到宿主机。如果本机已有 MySQL 占用 3306，可在 `.env` 里改为 3307：
 
 ```bash
-copy docker-compose.env.example .env
-docker compose up -d --build
+MYSQL_PORT=3307
 ```
+
+对应地：
+- 使用 Docker Compose 运行后端：无需改代码（后端容器内走 `mysql:3306`）
+- 本地直跑后端（非容器）：把 `MYSQL_URL` 改为 `jdbc:mysql://127.0.0.1:3307/...`（或用环境变量覆盖）
+
+### 2) dev 环境 tracing 导出失败（常见 4318 连接错误）
+
+默认会把 trace 导出到 `http://127.0.0.1:4318/v1/traces`（OTLP HTTP）。如果你本地没起 OpenTelemetry Collector，会看到一段 error/warn 日志但不影响功能。
+
+关闭方式（二选一即可）：
+- 设置采样为 0（推荐）：`TRACING_SAMPLING_PROBABILITY=0`
+- 或临时改 endpoint：`OTLP_TRACES_ENDPOINT=`（置空）/ 指向可用的 collector
 
 ## 部署与反向代理（Nginx）
 
@@ -189,6 +218,7 @@ docker compose up -d --build
 ## Git 工作流（项目管理约定）
 
 - 主干保护：`main` 仅允许通过 PR 合并（禁止直接 push），默认 Squash and merge
+- Issue/PR 模板：已配置 `.github/ISSUE_TEMPLATE/*` 与 `.github/PULL_REQUEST_TEMPLATE.md`
 - 分支命名：
   - UI 主题：`feature/ui-theme-redesign`
   - 定向 RAG：`feature/rag-doc-scope`
