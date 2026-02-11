@@ -28,6 +28,8 @@ const newChatBtn = document.getElementById("newChatBtn");
 const conversationList = document.getElementById("conversationList");
 const conversationTopic = document.getElementById("conversationTopic");
 const backBtn = document.getElementById("backBtn");
+const desktopBackBtn = document.getElementById("desktopBackBtn");
+const headerBackBtn = document.getElementById("headerBackBtn");
 let conversationMetaBySessionId = new Map();
 
 let autoScrollEnabled = true;
@@ -64,10 +66,20 @@ if (!token) {
   gotoAppHash("/login");
 }
 
+function goHome() {
+  gotoAppHash("/");
+}
+
 if (backBtn) {
-  backBtn.addEventListener("click", function () {
-    gotoAppHash("/");
-  });
+  backBtn.addEventListener("click", goHome);
+}
+
+if (desktopBackBtn) {
+  desktopBackBtn.addEventListener("click", goHome);
+}
+
+if (headerBackBtn) {
+  headerBackBtn.addEventListener("click", goHome);
 }
 
 if (modelSelect) {
@@ -197,16 +209,14 @@ async function loadConversationList() {
 
 function clearChatToWelcome() {
   chatContainer.innerHTML = `
-    <div class="message assistant">
-      <div class="avatar">AI</div>
+    <div class="message-wrapper">
+      <div class="avatar ai">AI</div>
       <div class="message-content">
-        你好！我是AI助手。我可以与你进行文字对话，也可以分析图片。有什么我可以帮助你的吗？
+        你好！我是你的 AI 学习助手。我可以帮你解答问题、分析图片，或者只是聊聊天。
       </div>
     </div>
-    <div class="typing-indicator" id="typingIndicator">
-      <span></span>
-      <span></span>
-      <span></span>
+    <div class="typing-indicator" id="typingIndicator" style="display: none; margin-left: 80px;">
+       <div class="typing"><span></span><span></span><span></span></div>
     </div>
   `;
 }
@@ -245,7 +255,9 @@ async function openConversation(targetSessionId) {
     const typing = document.createElement("div");
     typing.className = "typing-indicator";
     typing.id = "typingIndicator";
-    typing.innerHTML = "<span></span><span></span><span></span>";
+    typing.style.display = "none";
+    typing.style.marginLeft = "80px";
+    typing.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
     chatContainer.appendChild(typing);
   } catch (e) {
   }
@@ -294,10 +306,10 @@ function getTypingIndicatorElement() {
 
 function addMessage(role, content, isImage = false, isThinking = false) {
   const messageDiv = document.createElement("div");
-  messageDiv.className = `message ${role}`;
+  messageDiv.className = "message-wrapper";
 
   const avatar = document.createElement("div");
-  avatar.className = "avatar";
+  avatar.className = role === "user" ? "avatar user" : "avatar ai";
   avatar.textContent = role === "user" ? "U" : "AI";
 
   const messageContent = document.createElement("div");
@@ -512,10 +524,10 @@ async function sendMessage() {
       if (assistantMessageDiv) return;
 
       assistantMessageDiv = document.createElement("div");
-      assistantMessageDiv.className = "message assistant";
+      assistantMessageDiv.className = "message-wrapper";
 
       const avatar = document.createElement("div");
-      avatar.className = "avatar";
+      avatar.className = "avatar ai";
       avatar.textContent = "AI";
 
       assistantMessageContentDiv = document.createElement("div");
@@ -798,7 +810,7 @@ if (sidebarToggle && sidebar && sidebarOverlay) {
 }
 
 function syncComposerHeight() {
-  const inputContainer = document.querySelector(".input-container");
+  const inputContainer = document.querySelector(".input-area");
   if (!inputContainer) return;
   const h = Math.ceil(inputContainer.getBoundingClientRect().height);
   document.documentElement.style.setProperty("--composer-h", h + "px");

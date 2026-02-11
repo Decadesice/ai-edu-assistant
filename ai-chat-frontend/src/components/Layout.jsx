@@ -6,14 +6,27 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
-  const [statusOk, setStatusOk] = useState(true);
+
+  function clearAuth() {
+    localStorage.removeItem("token");
+    localStorage.removeItem("userId");
+    localStorage.removeItem("username");
+  }
+
+  function requireRelogin(text) {
+    sessionStorage.setItem("LOGIN_MESSAGE", text);
+    clearAuth();
+    navigate("/login", { replace: true, state: { message: text } });
+  }
 
   async function refreshStatus() {
     try {
       const resp = await apiFetch("/api/unified/conversation/list/detail", { method: "GET" });
-      setStatusOk(resp.ok);
+      if (!resp.ok) {
+        requireRelogin("登录已失效，请重新登录");
+      }
     } catch {
-      setStatusOk(false);
+      requireRelogin("连接异常，请重新登录");
     }
   }
 
@@ -30,9 +43,7 @@ export default function Layout() {
   }, []);
 
   function logout() {
-    localStorage.removeItem("token");
-    localStorage.removeItem("userId");
-    localStorage.removeItem("username");
+    clearAuth();
     navigate("/login", { replace: true });
   }
 
@@ -48,9 +59,6 @@ export default function Layout() {
           <div className="brand">个性化AI学习伴侣与错题生成系统</div>
         </div>
         <div className="topbar-right">
-          <div className={`status-pill ${statusOk ? "ok" : "bad"}`}>
-            {statusOk ? "个性化AI学习伴侣与错题生成系统服务正常运行！" : "服务不可用"}
-          </div>
           <button className="ghost-btn" type="button" onClick={refreshStatus}>
             刷新
           </button>

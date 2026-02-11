@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { getApiBase } from "../services/api.js";
 
 export default function IntelligentQA() {
-  const [key, setKey] = useState(0);
   const src = useMemo(() => "/qa/chat.html", []);
-  const wrapRef = useRef(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const base = getApiBase();
@@ -13,24 +13,12 @@ export default function IntelligentQA() {
     }
   }, []);
 
-  useEffect(() => {
-    function updateHeight() {
-      const el = wrapRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const available = Math.max(320, window.innerHeight - rect.top - 16);
-      el.style.height = `${available}px`;
-    }
-    updateHeight();
-    window.addEventListener("resize", updateHeight);
-    return () => window.removeEventListener("resize", updateHeight);
-  }, []);
-
   return (
     <div className="page qa-page">
-      <div className="qa-frame-wrap" ref={wrapRef}>
-        <iframe key={key} className="qa-frame" src={src} title="智能问答" />
-      </div>
+      <button className="qa-back-btn" type="button" onClick={() => navigate("/")}>
+        回到主页
+      </button>
+      <iframe className="qa-frame" src={src} title="智能问答" />
     </div>
   );
 }
