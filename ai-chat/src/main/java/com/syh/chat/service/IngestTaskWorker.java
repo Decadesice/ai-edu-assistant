@@ -13,6 +13,8 @@ import org.springframework.data.redis.stream.StreamMessageListenerContainer;
 import org.springframework.data.redis.stream.Subscription;
 import org.springframework.stereotype.Component;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -22,6 +24,8 @@ import java.util.UUID;
 @Component
 @ConditionalOnProperty(name = "app.ingest.queue", havingValue = "redis", matchIfMissing = true)
 public class IngestTaskWorker {
+
+    private static final Logger log = LoggerFactory.getLogger(IngestTaskWorker.class);
 
     private final StreamMessageListenerContainer<String, MapRecord<String, String, String>> container;
     private final StringRedisTemplate stringRedisTemplate;
@@ -114,6 +118,8 @@ public class IngestTaskWorker {
                 acknowledge(record);
             }
         } catch (Exception e) {
+            log.warn("IngestTaskWorker failed: streamKey={}, group={}, recordId={}, taskId={}, userId={}, documentId={}",
+                    streamKey, groupName, record.getId(), taskId, userIdRaw, documentIdRaw, e);
         }
     }
 

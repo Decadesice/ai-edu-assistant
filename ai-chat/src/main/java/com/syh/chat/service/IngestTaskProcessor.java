@@ -8,7 +8,6 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -40,7 +39,6 @@ public class IngestTaskProcessor {
         this.meterRegistry = meterRegistry;
     }
 
-    @Transactional
     public IngestTaskProcessingResult process(String taskId, Long userId, Long documentId, String filePath) {
         Timer.Sample sample = Timer.start(meterRegistry);
         String outcome = "skipped";
@@ -73,9 +71,9 @@ public class IngestTaskProcessor {
         }
 
         if (!stateService.tryMarkRunning(task, now)) {
-            Counter.builder("ingest_task_process_total").tag("result", "skipped").register(meterRegistry).increment();
-            sample.stop(Timer.builder("ingest_task_process_seconds").tag("result", "skipped").register(meterRegistry));
-            return IngestTaskProcessingResult.SKIPPED;
+            Counter.builder("ingest_task_process_total").tag("result", "busy").register(meterRegistry).increment();
+            sample.stop(Timer.builder("ingest_task_process_seconds").tag("result", "busy").register(meterRegistry));
+            return IngestTaskProcessingResult.BUSY;
         }
         task.setStatus(IngestTaskStateService.STATUS_RUNNING);
         task.setUpdatedAt(now);

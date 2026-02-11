@@ -15,6 +15,10 @@ import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -38,6 +42,7 @@ public class AsyncIngestTaskService {
     private final Path uploadDir;
     private final String queueType;
     private final String kafkaTopic;
+    private final TransactionTemplate transactionTemplate;
 
     public AsyncIngestTaskService(
             KnowledgeDocumentRepository documentRepository,
@@ -45,6 +50,7 @@ public class AsyncIngestTaskService {
             StringRedisTemplate stringRedisTemplate,
             OutboxEventRepository outboxEventRepository,
             ObjectMapper objectMapper,
+            PlatformTransactionManager transactionManager,
             @Value("${app.ingest.stream-key:ingest:tasks}") String streamKey,
             @Value("${app.storage.upload-dir:./data/uploads}") String uploadDir,
             @Value("${app.ingest.queue:redis}") String queueType,
@@ -59,6 +65,7 @@ public class AsyncIngestTaskService {
         this.uploadDir = Path.of(uploadDir);
         this.queueType = queueType;
         this.kafkaTopic = kafkaTopic;
+        this.transactionTemplate = new TransactionTemplate(Objects.requireNonNull(transactionManager, "transactionManager"));
     }
 
     @Transactional
@@ -97,7 +104,7 @@ public class AsyncIngestTaskService {
         task.setUpdatedAt(LocalDateTime.now());
         taskRepository.save(task);
 
-        enqueue(taskId, userId, doc.getId(), filePath);
+        enqueueAfterCommit(taskId, userId, doc.getId(), filePath);
 
         return toResponse(task);
     }
@@ -135,6 +142,39 @@ public class AsyncIngestTaskService {
         if (recordId == null) {
             throw new IllegalStateException("任务入队失败");
         }
+    }
+
+    private void enqueueAfterCommit(String taskId, Long userId, Long documentId, String filePath) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            enqueue(taskId, userId, documentId, filePath);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    enqueue(taskId, userId, documentId, filePath);
+                } catch (Exception e) {
+                    markEnqueueFailed(taskId, e);
+                }
+            }
+        });
+    }
+
+    private void markEnqueueFailed(String taskId, Exception e) {
+        String safeTaskId = Objects.requireNonNull(taskId, "taskId");
+        transactionTemplate.execute(status -> {
+            taskRepository.findById(safeTaskId).ifPresent(task -> {
+                task.setStatus(IngestTaskStateService.STATUS_DEAD);
+                String msg = (e == null || e.getMessage() == null || e.getMessage().isBlank()) ? "任务入队失败" : e.getMessage();
+                task.setErrorMessage(msg);
+                task.setLastError(msg);
+                task.setNextRetryAt(null);
+                task.setUpdatedAt(LocalDateTime.now());
+                taskRepository.save(task);
+            });
+            return null;
+        });
     }
 
     public IngestTaskResponse get(Long userId, String taskId) {

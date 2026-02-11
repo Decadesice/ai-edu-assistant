@@ -5,6 +5,7 @@ public enum IngestTaskProcessingResult {
     RETRY(false),
     DEAD(true),
     NOT_DUE(false),
+    BUSY(false),
     SKIPPED(true);
 
     private final boolean shouldAck;
