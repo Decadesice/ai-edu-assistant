@@ -1,15 +1,23 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../services/api.js";
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
+
+  function showError(text) {
+    setMessage({ type: "error", text });
+  }
+  function showSuccess(text) {
+    setMessage({ type: "success", text });
+  }
 
   useEffect(() => {
     if (window.top !== window.self) {
@@ -20,12 +28,15 @@ export default function Login() {
     }
   }, []);
 
-  function showError(text) {
-    setMessage({ type: "error", text });
-  }
-  function showSuccess(text) {
-    setMessage({ type: "success", text });
-  }
+  useEffect(() => {
+    const fromState = location.state && typeof location.state === "object" ? location.state.message : "";
+    const fromSession = sessionStorage.getItem("LOGIN_MESSAGE") || "";
+    const text = (fromState || fromSession || "").trim();
+    if (text) {
+      showError(text);
+      sessionStorage.removeItem("LOGIN_MESSAGE");
+    }
+  }, [location.state]);
 
   async function doLogin() {
     if (!username.trim() || !password) {
@@ -129,7 +140,7 @@ export default function Login() {
               <div className="label">密码</div>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
             </label>
-            <button className="primary-btn" disabled={loading} type="button" onClick={doLogin}>
+            <button className="primary-btn full" disabled={loading} type="button" onClick={doLogin}>
               {loading ? "处理中..." : "登录"}
             </button>
           </div>
@@ -147,7 +158,7 @@ export default function Login() {
               <div className="label">密码</div>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
             </label>
-            <button className="primary-btn" disabled={loading} type="button" onClick={doRegister}>
+            <button className="primary-btn full" disabled={loading} type="button" onClick={doRegister}>
               {loading ? "处理中..." : "注册"}
             </button>
           </div>
