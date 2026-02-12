@@ -144,14 +144,9 @@ public class KnowledgeIngestService {
             doc.setStatus("FAILED");
             doc.setUpdatedAt(LocalDateTime.now());
             documentRepository.save(doc);
-
-            String msg = e.getMessage() == null ? "" : e.getMessage();
-            String lower = msg.toLowerCase();
-            if (lower.contains("siliconflow")) {
-                throw new IllegalArgumentException("向量化失败：SiliconFlow Embeddings 调用异常。请检查 SiliconFlow_Api_Key 与网络连通性。");
-            }
-            if (msg.contains(":8000") || msg.toLowerCase().contains("chroma")) {
-                throw new IllegalArgumentException("无法连接 Chroma(8000)。请确认 chroma-db 容器已启动且端口已映射到本机 8000");
+            RuntimeException mapped = mapIngestRuntimeException(e);
+            if (mapped != null) {
+                throw mapped;
             }
             throw e;
         } finally {
@@ -226,20 +221,55 @@ public class KnowledgeIngestService {
             doc.setStatus("FAILED");
             doc.setUpdatedAt(LocalDateTime.now());
             documentRepository.save(doc);
-
-            String msg = e.getMessage() == null ? "" : e.getMessage();
-            String lower = msg.toLowerCase();
-            if (lower.contains("siliconflow")) {
-                throw new IllegalArgumentException("向量化失败：SiliconFlow Embeddings 调用异常。请检查 SiliconFlow_Api_Key 与网络连通性。");
-            }
-            if (msg.contains(":8000") || msg.toLowerCase().contains("chroma")) {
-                throw new IllegalArgumentException("无法连接 Chroma(8000)。请确认 chroma-db 容器已启动且端口已映射到本机 8000");
+            RuntimeException mapped = mapIngestRuntimeException(e);
+            if (mapped != null) {
+                throw mapped;
             }
             throw e;
         } finally {
             sample.stop(Timer.builder("knowledge_ingest_seconds").tag("result", result).register(meterRegistry));
         }
 
+    }
+
+    private RuntimeException mapIngestRuntimeException(RuntimeException e) {
+        String msg = (e == null || e.getMessage() == null) ? "" : e.getMessage().trim();
+        String lower = msg.toLowerCase();
+        if (lower.contains("siliconflow")) {
+            String detail = extractSiliconFlowDetail(msg);
+            if (lower.contains("api key") || lower.contains("未配置") || lower.contains("not configured")) {
+                return new IllegalArgumentException("向量化失败：SiliconFlow API Key 未配置，请设置环境变量 SILICONFLOW_API_KEY。" + detail);
+            }
+            if (lower.contains("http 401") || lower.contains("http 403")) {
+                return new IllegalArgumentException("向量化失败：SiliconFlow 鉴权失败，请检查 SILICONFLOW_API_KEY 是否正确。" + detail);
+            }
+            if (lower.contains("http 429")) {
+                return new IllegalArgumentException("向量化失败：SiliconFlow 请求过于频繁（HTTP 429）。请稍后重试。" + detail);
+            }
+            if (lower.contains("http 400")) {
+                return new IllegalArgumentException("向量化失败：SiliconFlow Embeddings 请求参数错误（HTTP 400）。" + detail);
+            }
+            return new IllegalArgumentException("向量化失败：SiliconFlow Embeddings 调用失败。" + detail);
+        }
+        if (msg.contains(":8000") || lower.contains("chroma")) {
+            return new IllegalArgumentException("无法连接 Chroma(8000)。请确认 chroma-db 容器已启动且端口已映射到本机 8000");
+        }
+        return null;
+    }
+
+    private String extractSiliconFlowDetail(String msg) {
+        if (msg == null || msg.isBlank()) {
+            return "";
+        }
+        String s = msg.replaceAll("\\s+", " ").trim();
+        int idx = s.indexOf("HTTP ");
+        if (idx >= 0) {
+            s = s.substring(idx).trim();
+        }
+        if (s.length() > 300) {
+            s = s.substring(0, 300) + "...";
+        }
+        return s.isBlank() ? "" : " 详情: " + s;
     }
 
     public List<KnowledgeDocument> listDocuments(Long userId) {
