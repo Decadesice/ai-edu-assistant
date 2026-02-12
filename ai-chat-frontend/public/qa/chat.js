@@ -86,7 +86,9 @@ if (modelSelect) {
   modelSelect.value = currentModel;
 }
 
-userInfo.textContent = `欢迎, ${username}`;
+if (userInfo) {
+  userInfo.textContent = `欢迎, ${username}`;
+}
 
 async function fetchWithAuth(url, options = {}) {
   const fullUrl = url.startsWith("http") ? url : API_BASE + url;
@@ -384,6 +386,7 @@ function showError(message) {
   }, 5000);
 }
 
+if (imageInput) {
 imageInput.addEventListener("change", function (e) {
   const file = e.target.files[0];
   if (file) {
@@ -401,30 +404,47 @@ imageInput.addEventListener("change", function (e) {
     const reader = new FileReader();
     reader.onload = function (event) {
       currentImageBase64 = event.target.result;
-      imagePreview.src = currentImageBase64;
-      imagePreview.style.display = "block";
-      removeImageBtn.style.display = "block";
-      imageLabel.style.display = "none";
+      if (imagePreview) {
+        imagePreview.src = currentImageBase64;
+        imagePreview.style.display = "block";
+      }
+      if (removeImageBtn) {
+        removeImageBtn.style.display = "block";
+        if (imageLabel) {
+          imageLabel.style.display = "none";
+        }
+      }
       syncComposerHeight();
       scrollChatToBottom();
     };
     reader.readAsDataURL(file);
   }
 });
+}
 
-removeImageBtn.addEventListener("click", function () {
-  currentImageBase64 = null;
-  imageInput.value = "";
-  imagePreview.src = "";
-  imagePreview.style.display = "none";
-  removeImageBtn.style.display = "none";
-  imageLabel.style.display = "block";
-  syncComposerHeight();
-});
+if (removeImageBtn) {
+  removeImageBtn.addEventListener("click", function () {
+    currentImageBase64 = null;
+    if (imageInput) {
+      imageInput.value = "";
+    }
+    if (imagePreview) {
+      imagePreview.src = "";
+      imagePreview.style.display = "none";
+    }
+    removeImageBtn.style.display = "none";
+    if (imageLabel) {
+      imageLabel.style.display = "block";
+    }
+    syncComposerHeight();
+  });
+}
 
-modelSelect.addEventListener("change", function (e) {
-  currentModel = e.target.value;
-});
+if (modelSelect) {
+  modelSelect.addEventListener("change", function (e) {
+    currentModel = e.target.value;
+  });
+}
 
 async function sendMessage() {
   const message = messageInput.value.trim();
