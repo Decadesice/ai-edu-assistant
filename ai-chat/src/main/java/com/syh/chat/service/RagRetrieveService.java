@@ -42,8 +42,16 @@ public class RagRetrieveService {
             return new RagContextResponse(List.of());
         }
         Timer.Sample embeddingSample = Timer.start(meterRegistry);
-        Embedding queryEmbedding = embeddingModel.embed(query).content();
-        embeddingSample.stop(Timer.builder("rag_embedding_seconds").register(meterRegistry));
+        Embedding queryEmbedding;
+        try {
+            queryEmbedding = embeddingModel.embed(query).content();
+            embeddingSample.stop(Timer.builder("rag_embedding_seconds").register(meterRegistry));
+        } catch (Exception e) {
+            Counter.builder("rag_retrieve_failures_total").tag("stage", "embedding").register(meterRegistry).increment();
+            embeddingSample.stop(Timer.builder("rag_embedding_seconds").register(meterRegistry));
+            overall.stop(Timer.builder("rag_retrieve_seconds").tag("result", "error").register(meterRegistry));
+            return new RagContextResponse(List.of());
+        }
         List<String> docs;
         try {
             Timer.Sample chromaSample = Timer.start(meterRegistry);

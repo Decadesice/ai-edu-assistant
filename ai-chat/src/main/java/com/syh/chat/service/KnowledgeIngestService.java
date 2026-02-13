@@ -15,6 +15,7 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -22,12 +23,16 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.BiConsumer;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 @Service
 public class KnowledgeIngestService {
@@ -40,6 +45,7 @@ public class KnowledgeIngestService {
     private final BigModelService bigModelService;
     private final String summaryModelName;
     private final MeterRegistry meterRegistry;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     public KnowledgeIngestService(
             KnowledgeDocumentRepository documentRepository,
@@ -48,8 +54,9 @@ public class KnowledgeIngestService {
             ChromaVectorStoreService chromaVectorStoreService,
             SiliconFlowService siliconFlowService,
             BigModelService bigModelService,
-            @Value("${knowledge.summary-model:THUDM/GLM-4.1V-9B-Thinking}") String summaryModelName,
-            MeterRegistry meterRegistry
+            @Value("${knowledge.summary-model:Auto}") String summaryModelName,
+            MeterRegistry meterRegistry,
+            RedisTemplate<String, Object> redisTemplate
     ) {
         this.documentRepository = documentRepository;
         this.segmentRepository = segmentRepository;
@@ -59,6 +66,7 @@ public class KnowledgeIngestService {
         this.bigModelService = bigModelService;
         this.summaryModelName = summaryModelName;
         this.meterRegistry = meterRegistry;
+        this.redisTemplate = redisTemplate;
     }
 
     @Transactional
@@ -237,6 +245,9 @@ public class KnowledgeIngestService {
         String lower = msg.toLowerCase();
         if (lower.contains("siliconflow")) {
             String detail = extractSiliconFlowDetail(msg);
+            if (lower.contains("failed to resolve") || lower.contains("unknownhost") || lower.contains("unknown host") || lower.contains("name or service not known")) {
+                return new IllegalArgumentException("向量化失败：无法解析 api.siliconflow.cn（DNS）。如果通过 Docker 启动，请为 backend 容器配置 dns，或检查宿主机网络/DNS。" + detail);
+            }
             if (lower.contains("api key") || lower.contains("未配置") || lower.contains("not configured")) {
                 return new IllegalArgumentException("向量化失败：SiliconFlow API Key 未配置，请设置环境变量 SILICONFLOW_API_KEY。" + detail);
             }
@@ -309,17 +320,7 @@ public class KnowledgeIngestService {
         String prompt = "你是文档摘要助手。请为以下文档生成一份简明的中文摘要（500字以内），用自然段输出：\n\n" + fullText.toString();
         List<Message> messages = List.of(new Message("user", prompt));
 
-        String summary = "";
-        try {
-            summary = siliconFlowService.chatOnce(messages, summaryModelName).block();
-        } catch (Exception ignored) {
-        }
-        if (summary == null || summary.isBlank()) {
-            try {
-                summary = bigModelService.chatOnce(messages, "glm-4.6v-Flash").map(BigModelService.BigModelReply::getContent).block();
-            } catch (Exception ignored) {
-            }
-        }
+        String summary = generateSummaryWithFallback(messages, summaryModelName);
         summary = summary == null ? "" : summary.trim();
         if (summary.isBlank()) {
             summary = "摘要生成失败，请稍后重试。";
@@ -327,6 +328,106 @@ public class KnowledgeIngestService {
         doc.setSummary(summary);
         documentRepository.save(doc);
         return summary;
+    }
+
+    public Map<String, Object> getSummaryTaskState(Long userId, Long documentId) {
+        KnowledgeDocument doc = documentRepository.findByIdAndUserId(documentId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("文档不存在"));
+
+        if (doc.getSummary() != null && !doc.getSummary().isBlank() && !"摘要生成失败，请稍后重试。".equals(doc.getSummary().trim())) {
+            return Map.of("status", "DONE", "summary", doc.getSummary());
+        }
+
+        String key = buildSummaryTaskKey(userId, documentId);
+        Object v = redisTemplate.opsForValue().get(key);
+        if (v instanceof Map<?, ?> m) {
+            Object status = m.get("status");
+            Object error = m.get("error");
+            if (status != null) {
+                return Map.of(
+                        "status", String.valueOf(status),
+                        "summary", doc.getSummary() == null ? "" : doc.getSummary(),
+                        "error", error == null ? "" : String.valueOf(error)
+                );
+            }
+        }
+
+        return Map.of("status", "IDLE", "summary", doc.getSummary() == null ? "" : doc.getSummary());
+    }
+
+    public Map<String, Object> startSummaryTask(Long userId, Long documentId) {
+        KnowledgeDocument doc = documentRepository.findByIdAndUserId(documentId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("文档不存在"));
+        if (doc.getSummary() != null && !doc.getSummary().isBlank() && !"摘要生成失败，请稍后重试。".equals(doc.getSummary().trim())) {
+            return Map.of("status", "DONE", "summary", doc.getSummary());
+        }
+
+        String key = buildSummaryTaskKey(userId, documentId);
+        Map<String, Object> init = Map.of(
+                "status", "RUNNING",
+                "updatedAt", System.currentTimeMillis()
+        );
+        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(key, init, Duration.ofHours(1));
+        if (Boolean.FALSE.equals(acquired)) {
+            return getSummaryTaskState(userId, documentId);
+        }
+
+        Mono.fromRunnable(() -> {
+                    try {
+                        String s = getOrGenerateSummary(userId, documentId);
+                        redisTemplate.opsForValue().set(key, Map.of(
+                                "status", "DONE",
+                                "updatedAt", System.currentTimeMillis(),
+                                "summaryLen", s == null ? 0 : s.length()
+                        ), Duration.ofHours(24));
+                    } catch (Exception e) {
+                        String msg = e.getMessage() == null ? "摘要生成失败" : e.getMessage();
+                        redisTemplate.opsForValue().set(key, Map.of(
+                                "status", "ERROR",
+                                "updatedAt", System.currentTimeMillis(),
+                                "error", msg
+                        ), Duration.ofHours(1));
+                    }
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .subscribe();
+
+        return Map.of("status", "RUNNING");
+    }
+
+    private String buildSummaryTaskKey(Long userId, Long documentId) {
+        return "knowledge:summary:task:" + userId + ":" + documentId;
+    }
+
+    private String generateSummaryWithFallback(List<Message> messages, String rawModel) {
+        List<ModelPolicy.ModelCandidate> candidates;
+        if (rawModel == null || rawModel.isBlank() || ModelPolicy.isAuto(rawModel)) {
+            candidates = ModelPolicy.autoNonVisionOnceCandidates();
+        } else if (ModelPolicy.isAdvanced(rawModel)) {
+            candidates = List.of(new ModelPolicy.ModelCandidate("glm-4.7-flash", ModelPolicy.Provider.BIGMODEL, false, true, 1));
+        } else {
+            candidates = List.of(ModelPolicy.normalizeExplicitModel(rawModel));
+        }
+
+        for (int i = 0; i < candidates.size(); i++) {
+            ModelPolicy.ModelCandidate c = candidates.get(i);
+            try {
+                if (c.provider() == ModelPolicy.Provider.SILICONFLOW) {
+                    String s = siliconFlowService.chatOnce(messages, c.modelName()).block();
+                    if (s != null && !s.isBlank()) return s;
+                } else {
+                    String s = bigModelService.chatOnce(messages, c.modelName()).map(BigModelService.BigModelReply::getContent).block();
+                    if (s != null && !s.isBlank()) return s;
+                }
+            } catch (Exception ignored) {
+            }
+
+            boolean canFallback = (rawModel == null || rawModel.isBlank() || ModelPolicy.isAuto(rawModel)) && i + 1 < candidates.size();
+            if (!canFallback) {
+                break;
+            }
+        }
+        return "";
     }
 
     private String extractPdfText(MultipartFile file) {

@@ -3,25 +3,73 @@ import { apiFetch, getApiBase } from "../services/api.js";
 
 export default function KnowledgeManagement() {
   const fileRef = useRef(null);
+  const summaryPollRef = useRef(null);
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [error, setError] = useState("");
-  const [summaryModal, setSummaryModal] = useState({ visible: false, content: "", loading: false });
+  const [summaryModal, setSummaryModal] = useState({ visible: false, content: "", loading: false, docId: null, status: "" });
   const apiBase = useMemo(() => getApiBase(), []);
+
+  function stopSummaryPoll() {
+    if (summaryPollRef.current) {
+      clearInterval(summaryPollRef.current);
+      summaryPollRef.current = null;
+    }
+  }
+
+  async function fetchLegacySummary(docId) {
+    const resp = await apiFetch(`/api/knowledge/documents/${docId}/summary`, { method: "GET" });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(data.message || "获取摘要失败");
+    }
+    stopSummaryPoll();
+    setSummaryModal({ visible: true, content: data.summary || "", loading: false, docId, status: "DONE" });
+  }
+
+  async function refreshSummaryTask(docId) {
+    const resp = await apiFetch(`/api/knowledge/documents/${docId}/summary/task`, { method: "GET" });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const msg = String(data.message || "");
+      if (resp.status === 404 || msg.includes("No static resource")) {
+        await fetchLegacySummary(docId);
+        return;
+      }
+      throw new Error(msg || "获取摘要失败");
+    }
+    const status = String(data.status || "");
+    if (status === "DONE") {
+      stopSummaryPoll();
+      setSummaryModal({ visible: true, content: data.summary || "", loading: false, docId, status });
+      return;
+    }
+    if (status === "ERROR") {
+      stopSummaryPoll();
+      setSummaryModal({ visible: true, content: data.error ? "生成摘要失败: " + data.error : "生成摘要失败", loading: false, docId, status });
+      return;
+    }
+    setSummaryModal((prev) => ({ ...prev, visible: true, loading: true, docId, status }));
+  }
 
   async function handleSummary(doc, e) {
     if (e) e.stopPropagation();
-    setSummaryModal({ visible: true, content: "", loading: true });
+    stopSummaryPoll();
+    setSummaryModal({ visible: true, content: "", loading: true, docId: doc.id, status: "RUNNING" });
     try {
-      const resp = await apiFetch(`/api/knowledge/documents/${doc.id}/summary`);
-      if (!resp.ok) {
-        throw new Error("获取摘要失败");
+      const startResp = await apiFetch(`/api/knowledge/documents/${doc.id}/summary/task`, { method: "POST" });
+      if (startResp.status === 404) {
+        await fetchLegacySummary(doc.id);
+        return;
       }
-      const data = await resp.json();
-      setSummaryModal({ visible: true, content: data.summary, loading: false });
+      await refreshSummaryTask(doc.id);
+      summaryPollRef.current = setInterval(() => {
+        refreshSummaryTask(doc.id).catch(() => {});
+      }, 1200);
     } catch (e) {
-      setSummaryModal({ visible: true, content: "生成摘要失败: " + e.message, loading: false });
+      stopSummaryPoll();
+      setSummaryModal({ visible: true, content: "生成摘要失败: " + e.message, loading: false, docId: doc.id, status: "ERROR" });
     }
   }
 
@@ -41,6 +89,7 @@ export default function KnowledgeManagement() {
 
   useEffect(() => {
     loadDocs();
+    return () => stopSummaryPoll();
   }, []);
 
   async function upload() {
@@ -151,17 +200,30 @@ export default function KnowledgeManagement() {
       </div>
 
       {summaryModal.visible && (
-        <div className="modal-backdrop" onClick={() => setSummaryModal({ ...summaryModal, visible: false })}>
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            stopSummaryPoll();
+            setSummaryModal({ ...summaryModal, visible: false });
+          }}
+        >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <div className="modal-title">文档摘要</div>
-              <button className="ghost-btn" type="button" onClick={() => setSummaryModal({ ...summaryModal, visible: false })}>
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={() => {
+                  stopSummaryPoll();
+                  setSummaryModal({ ...summaryModal, visible: false });
+                }}
+              >
                 关闭
               </button>
             </div>
             <div className="modal-body">
               {summaryModal.loading ? (
-                <div className="placeholder">正在生成摘要，请稍候...</div>
+                <div className="placeholder">摘要生成中，可先关闭窗口去做别的事情…</div>
               ) : (
                 <div style={{ lineHeight: "1.7", whiteSpace: "pre-wrap" }}>{summaryModal.content}</div>
               )}

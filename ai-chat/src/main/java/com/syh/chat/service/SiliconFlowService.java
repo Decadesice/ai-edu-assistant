@@ -28,12 +28,18 @@ import java.nio.charset.StandardCharsets;
 @Service
 public class SiliconFlowService {
 
-    private final WebClient webClient;
+    private final WebClient streamWebClient;
+    private final WebClient onceWebClient;
     private final SiliconFlowProperties properties;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public SiliconFlowService(@Qualifier("siliconFlowWebClient") WebClient webClient, SiliconFlowProperties properties) {
-        this.webClient = webClient;
+    public SiliconFlowService(
+            @Qualifier("siliconFlowWebClient") WebClient streamWebClient,
+            @Qualifier("siliconFlowLongWebClient") WebClient onceWebClient,
+            SiliconFlowProperties properties
+    ) {
+        this.streamWebClient = streamWebClient;
+        this.onceWebClient = onceWebClient;
         this.properties = properties;
     }
 
@@ -49,7 +55,7 @@ public class SiliconFlowService {
         body.put("stream", false);
         body.set("messages", buildMessages(messages));
 
-        return webClient.post()
+        return onceWebClient.post()
                 .uri("/chat/completions")
                 .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
@@ -76,7 +82,7 @@ public class SiliconFlowService {
 
         AtomicBoolean doneEmitted = new AtomicBoolean(false);
 
-        return webClient.post()
+        return streamWebClient.post()
                 .uri("/chat/completions")
                 .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
@@ -112,11 +118,17 @@ public class SiliconFlowService {
 
     @SuppressWarnings("unused")
     private Mono<String> chatOnceFallback(List<Message> messages, String modelName, Throwable cause) {
+        if (cause != null) {
+            return Mono.error(cause);
+        }
         return Mono.error(new IllegalStateException("SiliconFlow 服务繁忙或不可用，请稍后重试"));
     }
 
     @SuppressWarnings("unused")
     private Flux<BigModelService.BigModelDelta> chatStreamFallback(List<Message> messages, String modelName, Throwable cause) {
+        if (cause != null) {
+            return Flux.error(cause);
+        }
         return Flux.error(new IllegalStateException("SiliconFlow 服务繁忙或不可用，请稍后重试"));
     }
 

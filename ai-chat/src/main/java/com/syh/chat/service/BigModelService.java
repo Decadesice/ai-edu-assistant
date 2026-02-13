@@ -31,13 +31,20 @@ import java.nio.charset.StandardCharsets;
 @Service
 public class BigModelService {
 
-    private final WebClient webClient;
+    private final WebClient streamWebClient;
+    private final WebClient onceWebClient;
     private final BigModelProperties properties;
     private final MeterRegistry meterRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public BigModelService(@Qualifier("bigModelWebClient") WebClient webClient, BigModelProperties properties, MeterRegistry meterRegistry) {
-        this.webClient = webClient;
+    public BigModelService(
+            @Qualifier("bigModelWebClient") WebClient streamWebClient,
+            @Qualifier("bigModelLongWebClient") WebClient onceWebClient,
+            BigModelProperties properties,
+            MeterRegistry meterRegistry
+    ) {
+        this.streamWebClient = streamWebClient;
+        this.onceWebClient = onceWebClient;
         this.properties = properties;
         this.meterRegistry = meterRegistry;
     }
@@ -67,13 +74,19 @@ public class BigModelService {
                     .tag("stream", "false")
                     .register(meterRegistry);
 
-            return webClient.post()
+            return onceWebClient.post()
                     .uri("/api/paas/v4/chat/completions")
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
                     .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(String.class)
+                    .exchangeToMono(resp -> {
+                        if (resp.statusCode().isError()) {
+                            return resp.bodyToMono(String.class)
+                                    .defaultIfEmpty("")
+                                    .flatMap(b -> Mono.error(new IllegalStateException("BigModel API 调用失败: HTTP " + resp.statusCode().value() + " " + trimErrorBody(b))));
+                        }
+                        return resp.bodyToMono(String.class);
+                    })
                     .map(this::parseReply)
                     .doOnError(e -> failures.increment())
                     .doFinally(sig -> sample.stop(timer));
@@ -107,12 +120,19 @@ public class BigModelService {
                     .tag("stream", "true")
                     .register(meterRegistry);
 
-            return webClient.post()
+            return streamWebClient.post()
                     .uri("/api/paas/v4/chat/completions")
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
                     .bodyValue(body)
-                    .exchangeToFlux(resp -> resp.bodyToFlux(DataBuffer.class))
+                    .exchangeToFlux(resp -> {
+                        if (resp.statusCode().isError()) {
+                            return resp.bodyToMono(String.class)
+                                    .defaultIfEmpty("")
+                                    .flatMapMany(b -> Flux.error(new IllegalStateException("BigModel API 调用失败: HTTP " + resp.statusCode().value() + " " + trimErrorBody(b))));
+                        }
+                        return resp.bodyToFlux(DataBuffer.class);
+                    })
                     .transform(this::splitToLines)
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
@@ -140,13 +160,28 @@ public class BigModelService {
         });
     }
 
+    private String trimErrorBody(String raw) {
+        if (raw == null) return "";
+        String s = raw.replaceAll("\\s+", " ").trim();
+        if (s.length() > 400) {
+            s = s.substring(0, 400) + "...";
+        }
+        return s;
+    }
+
     @SuppressWarnings("unused")
     private Mono<BigModelReply> chatOnceFallback(List<Message> messages, String modelName, Throwable cause) {
+        if (cause != null) {
+            return Mono.error(cause);
+        }
         return Mono.error(new IllegalStateException("大模型服务繁忙或不可用，请稍后重试"));
     }
 
     @SuppressWarnings("unused")
     private Flux<BigModelDelta> chatStreamFallback(List<Message> messages, String modelName, Throwable cause) {
+        if (cause != null) {
+            return Flux.error(cause);
+        }
         return Flux.error(new IllegalStateException("大模型服务繁忙或不可用，请稍后重试"));
     }
 

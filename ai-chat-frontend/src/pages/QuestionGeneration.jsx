@@ -7,6 +7,7 @@ export default function QuestionGeneration() {
   const [chapterHint, setChapterHint] = useState("");
   const [count, setCount] = useState(5);
   const [types, setTypes] = useState(["single"]);
+  const [modelMode, setModelMode] = useState("Auto");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [questions, setQuestions] = useState([]);
@@ -66,7 +67,7 @@ export default function QuestionGeneration() {
           documentId: Number(documentId),
           chapterHint: chapterHint.trim(),
           count: Number(count || 5),
-          model: "glm-4.6v-Flash",
+          model: modelMode,
           types
         })
       });
@@ -119,30 +120,60 @@ export default function QuestionGeneration() {
         <div className="panel-desc">
           从知识库材料中检索相关片段，调用大模型生成题目并附解析，可选择题型。
         </div>
+        <div className="form-grid">
+          <div className="field">
+            <div className="field-label">文档</div>
+            <select className="text-input" value={documentId} onChange={(e) => setDocumentId(e.target.value)}>
+              <option value="">选择文档…</option>
+              {documents.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field" style={{ flex: 1, minWidth: 280 }}>
+            <div className="field-label" title="可选：用来缩小出题范围，或补充出题要求">
+              章节/提示词
+            </div>
+            <input
+              className="text-input"
+              placeholder="例如：第三章 逻辑推理 / 只出核心概念 / 出5道易错题"
+              value={chapterHint}
+              onChange={(e) => setChapterHint(e.target.value)}
+              title="可选：用来缩小出题范围，或补充出题要求"
+            />
+          </div>
+          <div className="field">
+            <div className="field-label" title="生成题目数量（1-10）">
+              题目数量
+            </div>
+            <input
+              className="text-input"
+              type="number"
+              min="1"
+              max="10"
+              value={count}
+              onChange={(e) => setCount(e.target.value)}
+              title="生成题目数量（1-10）"
+            />
+          </div>
+        </div>
         <div className="form-row">
-          <select className="text-input" value={documentId} onChange={(e) => setDocumentId(e.target.value)}>
-            <option value="">选择文档…</option>
-            {documents.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.title}
-              </option>
-            ))}
-          </select>
-          <input
-            className="text-input"
-            placeholder="例如：第三章 逻辑推理 / 马克思主义基本原理"
-            value={chapterHint}
-            onChange={(e) => setChapterHint(e.target.value)}
-          />
-          <input
-            className="text-input"
-            type="number"
-            min="1"
-            max="10"
-            value={count}
-            onChange={(e) => setCount(e.target.value)}
-            style={{ width: 120 }}
-          />
+          <div className="model-picker">
+            <span className="model-label" title="模型选择：切换按钮">
+              模型选择
+            </span>
+            <select
+              className="model-select"
+              value={modelMode}
+              onChange={(e) => setModelMode(e.target.value)}
+              title={modelMode === "Advanced" ? "可能出现排队等待" : "系统基于速度和效果帮助您选择最新的模型"}
+            >
+              <option value="Auto">Auto（自动）</option>
+              <option value="Advanced">Advanced（高级）</option>
+            </select>
+          </div>
           <div className="type-pills">
             <button
               className={`pill ${types.includes("single") ? "active" : ""}`}

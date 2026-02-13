@@ -62,6 +62,18 @@ public class KnowledgeController {
         String summary = ingestService.getOrGenerateSummary(userId, id);
         return ResponseEntity.ok(Map.of("summary", summary));
     }
+
+    @PostMapping("/documents/{id}/summary/task")
+    public ResponseEntity<Map<String, Object>> startSummaryTask(@PathVariable("id") Long id, HttpServletRequest httpRequest) {
+        Long userId = getUserId(httpRequest);
+        return ResponseEntity.ok(ingestService.startSummaryTask(userId, id));
+    }
+
+    @GetMapping("/documents/{id}/summary/task")
+    public ResponseEntity<Map<String, Object>> getSummaryTask(@PathVariable("id") Long id, HttpServletRequest httpRequest) {
+        Long userId = getUserId(httpRequest);
+        return ResponseEntity.ok(ingestService.getSummaryTaskState(userId, id));
+    }
 }
 
 

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo } from "react";
 import { getApiBase } from "../services/api.js";
 
 export default function IntelligentQA() {
-  const src = useMemo(() => "/qa/chat.html", []);
+  const src = useMemo(() => "/qa/chat.html?v=2", []);
 
   useEffect(() => {
     const base = getApiBase();

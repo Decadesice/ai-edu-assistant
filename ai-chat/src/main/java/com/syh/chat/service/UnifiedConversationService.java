@@ -8,6 +8,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class UnifiedConversationService {
@@ -33,25 +34,6 @@ public class UnifiedConversationService {
         redisConversationService.addSessionToUser(userId, sessionId);
     }
 
-    private String normalizeChatModel(String modelName) {
-        if (modelName == null) {
-            return "glm-4.6v-Flash";
-        }
-        String m = modelName.trim();
-        if (m.isEmpty()) {
-            return "glm-4.6v-Flash";
-        }
-        if ("glm-4.6v-Flash".equalsIgnoreCase(m)) {
-            return "glm-4.6v-Flash";
-        }
-        if ("GLM-4.1V-9B-Thinking".equalsIgnoreCase(m)
-                || "THUDM/GLM-4.1V-9B-Thinking".equalsIgnoreCase(m)
-                || "glm-4.1v-9b-thinking".equalsIgnoreCase(m)) {
-            return "THUDM/GLM-4.1V-9B-Thinking";
-        }
-        return "glm-4.6v-Flash";
-    }
-
     public List<Message> getConversation(Long userId, String sessionId) {
         List<Message> conversation = redisConversationService.getConversation(userId, sessionId);
 
@@ -71,7 +53,8 @@ public class UnifiedConversationService {
     }
 
     public String createNewConversation(Long userId, String title, String modelName) {
-        String sessionId = databaseConversationService.createConversation(userId, title, normalizeChatModel(modelName));
+        String storedModel = ModelPolicy.normalizeForStorage(modelName, false);
+        String sessionId = databaseConversationService.createConversation(userId, title, storedModel);
         redisConversationService.addSessionToUser(userId, sessionId);
         return sessionId;
     }
@@ -103,64 +86,186 @@ public class UnifiedConversationService {
 
     public Flux<String> chatWithStream(Long userId, String sessionId, String userMessage, String modelName,
             String image) {
-        String effectiveModelName = normalizeChatModel(modelName);
-        ensureConversationExists(userId, sessionId, "新对话", effectiveModelName);
+        boolean hasImageInput = image != null && !image.isBlank();
+        String storedModel = ModelPolicy.normalizeForStorage(modelName, hasImageInput);
+        ensureConversationExists(userId, sessionId, "新对话", storedModel);
         Message message = new Message("user", userMessage);
-        if (image != null && !image.isBlank()) {
+        if (hasImageInput) {
             message.setImages(java.util.List.of(image));
         }
         addMessage(userId, sessionId, message);
 
         List<Message> conversation = getConversation(userId, sessionId);
+        boolean hasAnyImage = hasAnyImage(conversation);
+        List<ModelPolicy.ModelCandidate> candidates = ModelPolicy.candidatesForChat(modelName, hasAnyImage);
+        return chatWithModelFallback(userId, sessionId, userMessage, modelName, image, conversation, candidates);
+    }
 
-        if ("glm-4.6v-Flash".equalsIgnoreCase(effectiveModelName)) {
-            return chatWithBigModel(userId, sessionId, userMessage, effectiveModelName, image, conversation);
+    private boolean hasAnyImage(List<Message> conversation) {
+        if (conversation == null || conversation.isEmpty()) return false;
+        for (Message m : conversation) {
+            if (m != null && m.getImages() != null && !m.getImages().isEmpty()) {
+                String img = m.getImages().get(0);
+                if (img != null && !img.isBlank()) return true;
+            }
         }
-        return chatWithSiliconFlow(userId, sessionId, userMessage, effectiveModelName, image, conversation);
+        return false;
     }
 
-    private Flux<String> chatWithBigModel(Long userId, String sessionId, String userMessage, String modelName, String image, List<Message> conversation) {
+    private Flux<BigModelService.BigModelDelta> streamByProvider(List<Message> conversation, ModelPolicy.ModelCandidate candidate) {
+        if (candidate.provider() == ModelPolicy.Provider.SILICONFLOW) {
+            return siliconFlowService.chatStream(conversation, candidate.modelName());
+        }
+        return bigModelService.chatStream(conversation, candidate.modelName());
+    }
+
+    private String toModeLabel(String raw) {
+        if (ModelPolicy.isAdvanced(raw)) return ModelPolicy.MODE_ADVANCED;
+        if (ModelPolicy.isAuto(raw) || raw == null || raw.isBlank()) return ModelPolicy.MODE_AUTO;
+        return "Explicit";
+    }
+
+    private boolean isOverloadedError(Throwable e) {
+        if (e == null) return false;
+        if (e instanceof org.springframework.web.reactive.function.client.WebClientResponseException w) {
+            int code = w.getStatusCode().value();
+            return code == 429 || code == 503;
+        }
+        String msg = e.getMessage() == null ? "" : e.getMessage();
+        return msg.contains("HTTP 429") || msg.contains("429") || msg.toLowerCase().contains("too many requests");
+    }
+
+    private boolean isDnsResolveError(Throwable e) {
+        if (e == null) return false;
+        Throwable cur = e;
+        int depth = 0;
+        while (cur != null && depth < 6) {
+            if (cur instanceof java.net.UnknownHostException) {
+                return true;
+            }
+            cur = cur.getCause();
+            depth++;
+        }
+        String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+        return msg.contains("failed to resolve") || msg.contains("unknownhost") || msg.contains("unknown host") || msg.contains("name or service not known");
+    }
+
+    private boolean isHttp400(Throwable e) {
+        if (e == null) return false;
+        if (e instanceof org.springframework.web.reactive.function.client.WebClientResponseException w) {
+            return w.getStatusCode().value() == 400;
+        }
+        String msg = e.getMessage() == null ? "" : e.getMessage();
+        return msg.contains("HTTP 400") || msg.contains(" 400 ");
+    }
+
+    private String dnsFriendlyMessage(Throwable e) {
+        String raw = e == null || e.getMessage() == null ? "" : e.getMessage();
+        if (raw.contains("open.bigmodel.cn")) {
+            return "网络异常：无法解析 open.bigmodel.cn（DNS）。如果通过 Docker 启动，请为 backend 容器配置 dns，或检查宿主机网络/DNS。";
+        }
+        if (raw.contains("api.siliconflow.cn")) {
+            return "网络异常：无法解析 api.siliconflow.cn（DNS）。如果通过 Docker 启动，请为 backend 容器配置 dns，或检查宿主机网络/DNS。";
+        }
+        return "网络异常：域名解析失败（DNS）。如果通过 Docker 启动，请为 backend 容器配置 dns，或检查宿主机网络/DNS。";
+    }
+
+    private Flux<String> chatWithModelFallback(
+            Long userId,
+            String sessionId,
+            String userMessage,
+            String rawModel,
+            String image,
+            List<Message> conversation,
+            List<ModelPolicy.ModelCandidate> candidates
+    ) {
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        StringBuilder fullContent = new StringBuilder();
         int chunkSize = 36;
 
-        return bigModelService.chatStream(conversation, modelName)
+        return Flux.defer(() -> tryCandidateStream(
+                userId,
+                sessionId,
+                userMessage,
+                rawModel,
+                image,
+                conversation,
+                candidates,
+                0,
+                mapper,
+                chunkSize
+        ));
+    }
+
+    private Flux<String> tryCandidateStream(
+            Long userId,
+            String sessionId,
+            String userMessage,
+            String rawModel,
+            String image,
+            List<Message> conversation,
+            List<ModelPolicy.ModelCandidate> candidates,
+            int idx,
+            com.fasterxml.jackson.databind.ObjectMapper mapper,
+            int chunkSize
+    ) {
+        if (candidates == null || candidates.isEmpty() || idx >= candidates.size()) {
+            com.fasterxml.jackson.databind.node.ObjectNode err = mapper.createObjectNode();
+            err.put("type", "error");
+            err.put("message", "模型调用失败");
+            return Flux.just(err.toString() + "\n", "{\"done\":true}\n");
+        }
+
+        ModelPolicy.ModelCandidate candidate = candidates.get(idx);
+        StringBuilder fullContent = new StringBuilder();
+        AtomicBoolean streamStarted = new AtomicBoolean(false);
+
+        com.fasterxml.jackson.databind.node.ObjectNode meta = mapper.createObjectNode();
+        meta.put("type", "meta");
+        meta.put("mode", toModeLabel(rawModel));
+        meta.put("model", candidate.modelName());
+        meta.put("thinking", candidate.thinking());
+
+        Flux<String> metaFlux = Flux.just(meta.toString() + "\n");
+
+        Flux<String> body = streamByProvider(conversation, candidate)
                 .concatMap(delta -> {
                     if (delta.isDone()) {
                         return Flux.just("{\"done\":true}\n");
                     }
 
                     java.util.ArrayList<String> out = new java.util.ArrayList<>();
-                    String thinkingDelta = delta.getReasoningDelta();
+                    String thinkingDelta = candidate.thinking() ? delta.getReasoningDelta() : null;
                     String contentDelta = delta.getContentDelta();
 
                     try {
                         if (thinkingDelta != null && !thinkingDelta.isBlank()) {
-                            int idx = 0;
-                            while (idx < thinkingDelta.length()) {
-                                String part = thinkingDelta.substring(idx, Math.min(thinkingDelta.length(), idx + chunkSize));
+                            streamStarted.set(true);
+                            int i = 0;
+                            while (i < thinkingDelta.length()) {
+                                String part = thinkingDelta.substring(i, Math.min(thinkingDelta.length(), i + chunkSize));
                                 com.fasterxml.jackson.databind.node.ObjectNode t = mapper.createObjectNode();
                                 com.fasterxml.jackson.databind.node.ObjectNode m = mapper.createObjectNode();
                                 m.put("thinking", part);
                                 t.set("message", m);
                                 out.add(t.toString() + "\n");
-                                idx += chunkSize;
+                                i += chunkSize;
                             }
                         }
                         if (contentDelta != null && !contentDelta.isEmpty()) {
+                            streamStarted.set(true);
                             fullContent.append(contentDelta);
-                            int idx = 0;
-                            while (idx < contentDelta.length()) {
-                                String part = contentDelta.substring(idx, Math.min(contentDelta.length(), idx + chunkSize));
+                            int i = 0;
+                            while (i < contentDelta.length()) {
+                                String part = contentDelta.substring(i, Math.min(contentDelta.length(), i + chunkSize));
                                 com.fasterxml.jackson.databind.node.ObjectNode c = mapper.createObjectNode();
                                 com.fasterxml.jackson.databind.node.ObjectNode m = mapper.createObjectNode();
                                 m.put("content", part);
                                 c.set("message", m);
                                 out.add(c.toString() + "\n");
-                                idx += chunkSize;
+                                i += chunkSize;
                             }
                         }
-                    } catch (Exception e) {
+                    } catch (Exception ignore) {
                         return Flux.empty();
                     }
 
@@ -170,74 +275,29 @@ public class UnifiedConversationService {
                     if (!fullContent.isEmpty()) {
                         addMessage(userId, sessionId, new Message("assistant", fullContent.toString()));
                     }
-                    generateTitleAsync(userId, sessionId, modelName, userMessage, fullContent.toString(), image != null && !image.isBlank());
+                    generateTitleAsync(userId, sessionId, candidate.modelName(), userMessage, fullContent.toString(), image != null && !image.isBlank());
                 })
                 .onErrorResume(e -> {
+                    boolean canFallbackAuto = !streamStarted.get() && (ModelPolicy.isAuto(rawModel) || rawModel == null || rawModel.isBlank()) && idx + 1 < candidates.size();
+                    boolean canFallbackAdvanced = !streamStarted.get() && ModelPolicy.isAdvanced(rawModel) && idx + 1 < candidates.size() && isHttp400(e);
+                    if (canFallbackAuto || canFallbackAdvanced) {
+                        return tryCandidateStream(userId, sessionId, userMessage, rawModel, image, conversation, candidates, idx + 1, mapper, chunkSize);
+                    }
+                    String msg;
+                    if (ModelPolicy.isAdvanced(rawModel) && isOverloadedError(e)) {
+                        msg = "当前模型使用人数过多";
+                    } else if (isDnsResolveError(e)) {
+                        msg = dnsFriendlyMessage(e);
+                    } else {
+                        msg = e.getMessage() == null ? "模型调用失败" : e.getMessage();
+                    }
                     com.fasterxml.jackson.databind.node.ObjectNode err = mapper.createObjectNode();
                     err.put("type", "error");
-                    err.put("message", e.getMessage() == null ? "BigModel 调用失败" : e.getMessage());
+                    err.put("message", msg);
                     return Flux.just(err.toString() + "\n", "{\"done\":true}\n");
                 });
-    }
 
-    private Flux<String> chatWithSiliconFlow(Long userId, String sessionId, String userMessage, String modelName, String image, List<Message> conversation) {
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        StringBuilder fullContent = new StringBuilder();
-        int chunkSize = 36;
-
-        return siliconFlowService.chatStream(conversation, modelName)
-                .concatMap(delta -> {
-                    if (delta.isDone()) {
-                        return Flux.just("{\"done\":true}\n");
-                    }
-
-                    java.util.ArrayList<String> out = new java.util.ArrayList<>();
-                    String thinkingDelta = delta.getReasoningDelta();
-                    String contentDelta = delta.getContentDelta();
-
-                    try {
-                        if (thinkingDelta != null && !thinkingDelta.isBlank()) {
-                            int idx = 0;
-                            while (idx < thinkingDelta.length()) {
-                                String part = thinkingDelta.substring(idx, Math.min(thinkingDelta.length(), idx + chunkSize));
-                                com.fasterxml.jackson.databind.node.ObjectNode t = mapper.createObjectNode();
-                                com.fasterxml.jackson.databind.node.ObjectNode m = mapper.createObjectNode();
-                                m.put("thinking", part);
-                                t.set("message", m);
-                                out.add(t.toString() + "\n");
-                                idx += chunkSize;
-                            }
-                        }
-                        if (contentDelta != null && !contentDelta.isEmpty()) {
-                            fullContent.append(contentDelta);
-                            int idx = 0;
-                            while (idx < contentDelta.length()) {
-                                String part = contentDelta.substring(idx, Math.min(contentDelta.length(), idx + chunkSize));
-                                com.fasterxml.jackson.databind.node.ObjectNode c = mapper.createObjectNode();
-                                com.fasterxml.jackson.databind.node.ObjectNode m = mapper.createObjectNode();
-                                m.put("content", part);
-                                c.set("message", m);
-                                out.add(c.toString() + "\n");
-                                idx += chunkSize;
-                            }
-                        }
-                    } catch (Exception e) {
-                        return Flux.empty();
-                    }
-                    return Flux.fromIterable(out);
-                })
-                .doOnComplete(() -> {
-                    if (!fullContent.isEmpty()) {
-                        addMessage(userId, sessionId, new Message("assistant", fullContent.toString()));
-                    }
-                    generateTitleAsync(userId, sessionId, modelName, userMessage, fullContent.toString(), image != null && !image.isBlank());
-                })
-                .onErrorResume(e -> {
-                    com.fasterxml.jackson.databind.node.ObjectNode err = mapper.createObjectNode();
-                    err.put("type", "error");
-                    err.put("message", e.getMessage() == null ? "SiliconFlow 调用失败" : e.getMessage());
-                    return Flux.just(err.toString() + "\n", "{\"done\":true}\n");
-                });
+        return metaFlux.concatWith(body);
     }
 
     private void generateTitleAsync(Long userId, String sessionId, String modelName, String userText, String assistantText, boolean hasImage) {
@@ -313,8 +373,8 @@ public class UnifiedConversationService {
     }
 
     public String summarizeConversation(Long userId, String sessionId, String modelName) {
-        String effectiveModelName = normalizeChatModel(modelName);
-        ensureConversationExists(userId, sessionId, "新对话", effectiveModelName);
+        String storedModel = ModelPolicy.normalizeForStorage(modelName, false);
+        ensureConversationExists(userId, sessionId, "新对话", storedModel);
         List<Message> history = getConversation(userId, sessionId);
         if (history == null || history.isEmpty()) {
             return "无对话内容";
@@ -332,11 +392,8 @@ public class UnifiedConversationService {
         List<Message> messages = List.of(new Message("user", prompt));
 
         try {
-            if ("glm-4.6v-Flash".equalsIgnoreCase(effectiveModelName)) {
-                String s = bigModelService.chatOnce(messages, "glm-4.6v-Flash").map(BigModelService.BigModelReply::getContent).block();
-                return s == null || s.isBlank() ? "总结生成失败" : s.trim();
-            }
-            String s = siliconFlowService.chatOnce(messages, effectiveModelName).block();
+            ModelPolicy.ModelCandidate lowTier = ModelPolicy.summaryLowTier(hasAnyImage(history));
+            String s = bigModelService.chatOnce(messages, lowTier.modelName()).map(BigModelService.BigModelReply::getContent).block();
             return s == null || s.isBlank() ? "总结生成失败" : s.trim();
         } catch (Exception e) {
             return "总结生成失败";

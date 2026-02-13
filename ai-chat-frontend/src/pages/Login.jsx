@@ -103,7 +103,8 @@ export default function Login() {
     <div className="login-page">
       <div className="login-card">
         <div className="login-header">
-          <div className="login-title">个性化AI学习伴侣与错题生成系统</div>
+          <img className="login-logo" src="/favicon1.png" alt="题舟" />
+          <div className="login-slogan">题海如川，智舟为渡</div>
           <div className="login-subtitle">登录后进入主界面</div>
         </div>
 

@@ -56,7 +56,13 @@ export default function Layout() {
     <div className="app">
       <header className="topbar">
         <div className="topbar-left">
-          <div className="brand">个性化AI学习伴侣与错题生成系统</div>
+          <div className="brand">
+            <img className="brand-logo-img" src="/favicon1.png" alt="题舟" />
+            <div className="brand-text">
+              <div className="brand-title">题舟</div>
+              <div className="brand-slogan">题海如川，智舟为渡</div>
+            </div>
+          </div>
         </div>
         <div className="topbar-right">
           <button className="ghost-btn" type="button" onClick={refreshStatus}>
@@ -93,7 +99,7 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      <footer className="footer">个性化AI学习伴侣与错题生成系统 © 2026</footer>
+      <footer className="footer">题舟 · 题海如川，智舟为渡 © 2026</footer>
     </div>
   );
 }

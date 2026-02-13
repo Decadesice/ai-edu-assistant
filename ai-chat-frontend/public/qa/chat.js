@@ -6,7 +6,7 @@ const API_BASE = (window.API_BASE || (isLocalHost(window.location.hostname) ? "h
 
 let sessionId = null;
 let currentImageBase64 = null;
-let currentModel = "glm-4.6v-Flash";
+let currentModel = "Auto";
 let token = localStorage.getItem('token');
 let userId = localStorage.getItem('userId');
 let username = localStorage.getItem('username');
@@ -33,6 +33,8 @@ const headerBackBtn = document.getElementById("headerBackBtn");
 let conversationMetaBySessionId = new Map();
 
 let autoScrollEnabled = true;
+let lastSendPayload = null;
+let activeAbortController = null;
 
 function isNearBottom() {
   if (!chatContainer) return true;
@@ -211,10 +213,10 @@ async function loadConversationList() {
 
 function clearChatToWelcome() {
   chatContainer.innerHTML = `
-    <div class="message-wrapper">
-      <div class="avatar ai">AI</div>
+    <div class="message-wrapper ai-message">
+      <div class="avatar ai">舟</div>
       <div class="message-content">
-        你好！我是你的 AI 学习助手。我可以帮你解答问题、分析图片，或者只是聊聊天。
+        你好！我是题舟。我可以帮你解答问题、分析图片，或者只是聊聊天。
       </div>
     </div>
     <div class="typing-indicator" id="typingIndicator" style="display: none; margin-left: 80px;">
@@ -308,20 +310,26 @@ function getTypingIndicatorElement() {
 
 function addMessage(role, content, isImage = false, isThinking = false) {
   const messageDiv = document.createElement("div");
-  messageDiv.className = "message-wrapper";
+  messageDiv.className = `message-wrapper ${role === "user" ? "user-message" : "ai-message"}`;
 
   const avatar = document.createElement("div");
   avatar.className = role === "user" ? "avatar user" : "avatar ai";
   avatar.textContent = role === "user" ? "U" : "AI";
 
   const messageContent = document.createElement("div");
-  messageContent.className = `message-content ${isThinking ? "thinking" : ""}`;
+  messageContent.className = `message-content${isImage ? " is-image" : ""}${isThinking ? " thinking" : ""}`;
 
   if (isImage) {
     const img = document.createElement("img");
     img.src = content;
-    img.style.maxWidth = "100%";
-    img.style.borderRadius = "10px";
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.addEventListener("click", () => {
+      try {
+        window.open(content, "_blank", "noopener,noreferrer");
+      } catch (e) {
+      }
+    });
     messageContent.appendChild(img);
   } else if (isThinking) {
     const thinkingContainer = document.createElement("div");
@@ -443,44 +451,368 @@ if (removeImageBtn) {
 if (modelSelect) {
   modelSelect.addEventListener("change", function (e) {
     currentModel = e.target.value;
+    if (currentModel === "Auto") {
+      modelSelect.title = "系统基于速度和效果帮助您选择最新的模型";
+    } else if (currentModel === "Advanced") {
+      modelSelect.title = "可能出现排队等待";
+    } else {
+      modelSelect.title = "";
+    }
   });
 }
 
-async function sendMessage() {
-  const message = messageInput.value.trim();
-  if (!message && !currentImageBase64) {
-    showError("请输入消息或选择图片");
-    return;
-  }
+function createSkeletonPlaceholder() {
+  const wrap = document.createElement("div");
+  wrap.className = "content-placeholder";
+  const l1 = document.createElement("div");
+  l1.className = "skeleton-line w-85";
+  const l2 = document.createElement("div");
+  l2.className = "skeleton-line w-92";
+  const l3 = document.createElement("div");
+  l3.className = "skeleton-line w-72";
+  const l4 = document.createElement("div");
+  l4.className = "skeleton-line w-64";
+  wrap.appendChild(l1);
+  wrap.appendChild(l2);
+  wrap.appendChild(l3);
+  wrap.appendChild(l4);
+  return wrap;
+}
+
+function createContentErrorBlock(title, desc, onRetry) {
+  const box = document.createElement("div");
+  box.className = "content-error";
+  const t = document.createElement("div");
+  t.className = "content-error-title";
+  t.textContent = title;
+  const d = document.createElement("div");
+  d.className = "content-error-desc";
+  d.textContent = desc;
+  const actions = document.createElement("div");
+  actions.className = "content-error-actions";
+  const retryBtn = document.createElement("button");
+  retryBtn.className = "content-action-btn primary";
+  retryBtn.type = "button";
+  retryBtn.textContent = "重试";
+  retryBtn.addEventListener("click", onRetry);
+  actions.appendChild(retryBtn);
+  box.appendChild(t);
+  box.appendChild(d);
+  box.appendChild(actions);
+  return box;
+}
+
+async function runChatRequest(payload, options = {}) {
+  const echoUser = options.echoUser !== false;
   autoScrollEnabled = true;
 
-  if (!sessionId) {
+  if (activeAbortController) {
     try {
-      await createNewConversation(true);
+      activeAbortController.abort();
     } catch (e) {
-      sessionId = generateSessionId();
     }
   }
 
-  const hasImage = currentImageBase64 !== null;
-  if (hasImage) {
-    addMessage("user", currentImageBase64, true);
+  const abortController = new AbortController();
+  activeAbortController = abortController;
+
+  if (echoUser) {
+    if (payload.image) {
+      addMessage("user", payload.image, true);
+    }
+    if (payload.message) {
+      addMessage("user", payload.message, false);
+    }
   }
-  if (message) {
-    addMessage("user", message, false);
-  }
-  messageInput.value = "";
+
   sendBtn.disabled = true;
-  showTyping();
+  hideTyping();
+
+  let assistantMessage = "";
+  let thinkingContent = "";
+  let thinkingFinished = false;
+  let thinkingEnabled = null;
+  let assistantMessageDiv = null;
+  let assistantMessageContentDiv = null;
+  let assistantAnswerDiv = null;
+  let contentPlaceholderDiv = null;
+  let contentCollapseRow = null;
+  let contentCollapseBtn = null;
+  let thinkingBlockDiv = null;
+  let thinkingBadgeDiv = null;
+  let thinkingStageText = null;
+  let thinkingProgressDiv = null;
+  let thinkingBodyPre = null;
+  let thinkingToggleBtn = null;
+  let thinkingCancelBtn = null;
+  let thinkingTimerId = null;
+  let thinkingStepIndex = 0;
+  const thinkingSteps = ["正在分析你的问题", "正在检索相关知识", "正在整理思路", "正在生成答案草稿", "正在润色表达"];
+
+  function stopThinkingTimer() {
+    if (thinkingTimerId) {
+      clearInterval(thinkingTimerId);
+      thinkingTimerId = null;
+    }
+  }
+
+  function updateThinkingStep(forceIndex) {
+    if (!thinkingStageText || !thinkingProgressDiv) return;
+    const idx = typeof forceIndex === "number" ? forceIndex : thinkingStepIndex;
+    thinkingStageText.textContent = thinkingSteps[Math.max(0, Math.min(idx, thinkingSteps.length - 1))];
+    thinkingProgressDiv.textContent = `${Math.min(idx + 1, thinkingSteps.length)}/${thinkingSteps.length} 步`;
+  }
+
+  function startThinkingTimer() {
+    stopThinkingTimer();
+    thinkingStepIndex = 0;
+    updateThinkingStep(0);
+    thinkingTimerId = setInterval(() => {
+      if (thinkingFinished) return;
+      thinkingStepIndex = Math.min(thinkingStepIndex + 1, thinkingSteps.length - 1);
+      updateThinkingStep(thinkingStepIndex);
+    }, 1300);
+  }
+
+  function ensureAssistantMessage() {
+    if (assistantMessageDiv) return;
+
+    assistantMessageDiv = document.createElement("div");
+    assistantMessageDiv.className = "message-wrapper ai-message";
+
+    const avatar = document.createElement("div");
+    avatar.className = "avatar ai";
+    avatar.textContent = "AI";
+
+    assistantMessageContentDiv = document.createElement("div");
+    assistantMessageContentDiv.className = "message-content";
+
+    assistantAnswerDiv = document.createElement("div");
+    assistantAnswerDiv.className = "assistant-answer";
+
+    contentCollapseRow = document.createElement("div");
+    contentCollapseRow.className = "content-collapse-row";
+    contentCollapseBtn = document.createElement("button");
+    contentCollapseBtn.type = "button";
+    contentCollapseBtn.className = "content-action-btn";
+    contentCollapseBtn.textContent = "展开更多";
+    contentCollapseBtn.addEventListener("click", () => {
+      if (!assistantAnswerDiv) return;
+      const collapsed = assistantAnswerDiv.classList.contains("content-collapsed");
+      if (collapsed) {
+        assistantAnswerDiv.classList.remove("content-collapsed");
+        contentCollapseBtn.textContent = "收起";
+      } else {
+        assistantAnswerDiv.classList.add("content-collapsed");
+        contentCollapseBtn.textContent = "展开更多";
+      }
+      scrollIfNeeded();
+    });
+    contentCollapseRow.appendChild(contentCollapseBtn);
+
+    assistantMessageContentDiv.appendChild(assistantAnswerDiv);
+    assistantMessageContentDiv.appendChild(contentCollapseRow);
+    assistantMessageDiv.appendChild(avatar);
+    assistantMessageDiv.appendChild(assistantMessageContentDiv);
+
+    const typingEl = getTypingIndicatorElement();
+    if (typingEl) {
+      chatContainer.insertBefore(assistantMessageDiv, typingEl);
+    } else {
+      chatContainer.appendChild(assistantMessageDiv);
+    }
+    scrollIfNeeded();
+  }
+
+  function ensureContentPlaceholder() {
+    ensureAssistantMessage();
+    if (!assistantAnswerDiv) return;
+    if (contentPlaceholderDiv) return;
+    assistantAnswerDiv.innerHTML = "";
+    contentPlaceholderDiv = createSkeletonPlaceholder();
+    assistantAnswerDiv.appendChild(contentPlaceholderDiv);
+  }
+
+  function clearContentPlaceholder() {
+    if (!contentPlaceholderDiv) return;
+    try {
+      contentPlaceholderDiv.remove();
+    } catch (e) {
+    }
+    contentPlaceholderDiv = null;
+  }
+
+  function setContentError(desc) {
+    ensureAssistantMessage();
+    stopThinkingTimer();
+    clearContentPlaceholder();
+    if (assistantAnswerDiv) {
+      assistantAnswerDiv.innerHTML = "";
+      assistantAnswerDiv.appendChild(createContentErrorBlock("思考过程中出错了", desc || "请稍后重试", () => {
+        if (!lastSendPayload) return;
+        runChatRequest(lastSendPayload, { echoUser: false });
+      }));
+    }
+  }
+
+  function setContentCanceled() {
+    ensureAssistantMessage();
+    stopThinkingTimer();
+    clearContentPlaceholder();
+    if (assistantAnswerDiv) {
+      assistantAnswerDiv.innerHTML = "";
+      assistantAnswerDiv.appendChild(createContentErrorBlock("已取消", "你已中断本次思考，可点击重试继续生成。", () => {
+        if (!lastSendPayload) return;
+        runChatRequest(lastSendPayload, { echoUser: false });
+      }));
+    }
+  }
+
+  function ensureThinkingBlock() {
+    ensureAssistantMessage();
+    if (thinkingBlockDiv) return;
+
+    thinkingBlockDiv = document.createElement("div");
+    thinkingBlockDiv.className = "thinking-block";
+
+    const top = document.createElement("div");
+    top.className = "thinking-top";
+
+    const title = document.createElement("div");
+    title.className = "thinking-title";
+    const badge = document.createElement("span");
+    badge.className = "thinking-badge";
+    badge.textContent = "思考中";
+    thinkingBadgeDiv = badge;
+    const titleText = document.createElement("span");
+    titleText.textContent = "深度思考";
+    title.appendChild(badge);
+    title.appendChild(titleText);
+
+    const actions = document.createElement("div");
+    actions.className = "thinking-actions";
+
+    thinkingCancelBtn = document.createElement("button");
+    thinkingCancelBtn.type = "button";
+    thinkingCancelBtn.className = "thinking-btn danger";
+    thinkingCancelBtn.textContent = "取消";
+    thinkingCancelBtn.addEventListener("click", () => {
+      try {
+        abortController.abort();
+      } catch (e) {
+      }
+    });
+
+    thinkingToggleBtn = document.createElement("button");
+    thinkingToggleBtn.type = "button";
+    thinkingToggleBtn.className = "thinking-icon-btn";
+    thinkingToggleBtn.innerHTML = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"6 9 12 15 18 9\"></polyline></svg>";
+    thinkingToggleBtn.addEventListener("click", () => {
+      if (!thinkingBlockDiv) return;
+      thinkingBlockDiv.classList.toggle("expanded");
+      const expanded = thinkingBlockDiv.classList.contains("expanded");
+      thinkingToggleBtn.innerHTML = expanded
+        ? "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"18 15 12 9 6 15\"></polyline></svg>"
+        : "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"6 9 12 15 18 9\"></polyline></svg>";
+      scrollIfNeeded();
+    });
+
+    actions.appendChild(thinkingCancelBtn);
+    actions.appendChild(thinkingToggleBtn);
+
+    top.appendChild(title);
+    top.appendChild(actions);
+
+    const meta = document.createElement("div");
+    meta.className = "thinking-meta";
+
+    const stage = document.createElement("div");
+    stage.className = "thinking-stage";
+    const dots = document.createElement("span");
+    dots.className = "thinking-dots";
+    dots.innerHTML = "<span></span><span></span><span></span>";
+    thinkingStageText = document.createElement("span");
+    thinkingStageText.textContent = thinkingSteps[0];
+    stage.appendChild(dots);
+    stage.appendChild(thinkingStageText);
+
+    thinkingProgressDiv = document.createElement("div");
+    thinkingProgressDiv.className = "thinking-progress";
+    thinkingProgressDiv.textContent = `1/${thinkingSteps.length} 步`;
+
+    meta.appendChild(stage);
+    meta.appendChild(thinkingProgressDiv);
+
+    const body = document.createElement("div");
+    body.className = "thinking-body";
+    const pre = document.createElement("pre");
+    pre.textContent = "";
+    thinkingBodyPre = pre;
+    body.appendChild(pre);
+
+    thinkingBlockDiv.appendChild(top);
+    thinkingBlockDiv.appendChild(meta);
+    thinkingBlockDiv.appendChild(body);
+
+    assistantMessageContentDiv.insertBefore(thinkingBlockDiv, assistantAnswerDiv);
+
+    startThinkingTimer();
+  }
+
+  function setThinkingState(state) {
+    if (!thinkingBadgeDiv) return;
+    if (thinkingBlockDiv) {
+      thinkingBlockDiv.classList.toggle("is-stopped", state !== "running");
+    }
+    if (state === "running") {
+      thinkingBadgeDiv.textContent = "思考中";
+      if (thinkingCancelBtn) thinkingCancelBtn.style.display = "inline-flex";
+    } else if (state === "done") {
+      thinkingBadgeDiv.textContent = "已完成";
+      if (thinkingCancelBtn) thinkingCancelBtn.style.display = "none";
+    } else if (state === "error") {
+      thinkingBadgeDiv.textContent = "出错";
+      if (thinkingCancelBtn) thinkingCancelBtn.style.display = "none";
+    } else if (state === "canceled") {
+      thinkingBadgeDiv.textContent = "已取消";
+      if (thinkingCancelBtn) thinkingCancelBtn.style.display = "none";
+    }
+  }
+
+  function finalizeThinkingIfNeeded() {
+    if (!thinkingBlockDiv || thinkingFinished) return;
+    thinkingFinished = true;
+    stopThinkingTimer();
+    setThinkingState("done");
+    if (thinkingStageText) thinkingStageText.textContent = "思考完成，正在输出答案";
+    if (thinkingProgressDiv) thinkingProgressDiv.textContent = `${thinkingSteps.length}/${thinkingSteps.length} 步`;
+  }
+
+  function applyContentCollapseIfNeeded() {
+    if (!assistantAnswerDiv || !contentCollapseRow) return;
+    const height = assistantAnswerDiv.scrollHeight;
+    if (height > 720) {
+      assistantAnswerDiv.classList.add("content-collapsed");
+      contentCollapseRow.classList.add("visible");
+      contentCollapseBtn.textContent = "展开更多";
+    } else {
+      assistantAnswerDiv.classList.remove("content-collapsed");
+      contentCollapseRow.classList.remove("visible");
+    }
+  }
+
+  ensureAssistantMessage();
+  ensureContentPlaceholder();
 
   try {
     const response = await fetchWithAuth("/api/unified/chat/stream", {
       method: "POST",
+      signal: abortController.signal,
       body: JSON.stringify({
-        sessionId: sessionId,
-        message: message,
-        model: currentModel,
-        image: currentImageBase64
+        sessionId: payload.sessionId,
+        message: payload.message,
+        model: payload.model,
+        image: payload.image
       }),
     });
 
@@ -503,17 +835,6 @@ async function sendMessage() {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let assistantMessage = "";
-    let thinkingContent = "";
-    let isThinking = false;
-    let thinkingFinished = false;
-    let assistantMessageDiv = null;
-    let assistantMessageContentDiv = null;
-    let assistantAnswerDiv = null;
-    let thinkingBlockDiv = null;
-    let thinkingContainerDiv = null;
-    let thinkingStatusDiv = null;
-    let foldButton = null;
     let streamStarted = false;
     let doneSeen = false;
     let errorSeen = false;
@@ -537,83 +858,13 @@ async function sendMessage() {
         return;
       }
       lastRenderTime = now;
-      assistantAnswerDiv.innerHTML = marked.parse(assistantMessage);
-    }
-
-    function ensureAssistantMessage() {
-      if (assistantMessageDiv) return;
-
-      assistantMessageDiv = document.createElement("div");
-      assistantMessageDiv.className = "message-wrapper";
-
-      const avatar = document.createElement("div");
-      avatar.className = "avatar ai";
-      avatar.textContent = "AI";
-
-      assistantMessageContentDiv = document.createElement("div");
-      assistantMessageContentDiv.className = "message-content";
-
-      assistantAnswerDiv = document.createElement("div");
-      assistantMessageContentDiv.appendChild(assistantAnswerDiv);
-
-      assistantMessageDiv.appendChild(avatar);
-      assistantMessageDiv.appendChild(assistantMessageContentDiv);
-
-      const typingEl = getTypingIndicatorElement();
-      if (typingEl) {
-        chatContainer.insertBefore(assistantMessageDiv, typingEl);
-      } else {
-        chatContainer.appendChild(assistantMessageDiv);
+      clearContentPlaceholder();
+      try {
+        assistantAnswerDiv.innerHTML = marked.parse(assistantMessage);
+      } catch (e) {
+        setThinkingState("error");
+        setContentError("内容渲染失败，请点击重试重新生成。");
       }
-      scrollIfNeeded();
-    }
-
-    function ensureThinkingBlock() {
-      ensureAssistantMessage();
-      if (thinkingBlockDiv) return;
-
-      thinkingBlockDiv = document.createElement("div");
-      thinkingBlockDiv.className = "thinking-block";
-
-      thinkingStatusDiv = document.createElement("div");
-      thinkingStatusDiv.className = "thinking-status";
-      thinkingStatusDiv.textContent = "思考中...";
-
-      foldButton = document.createElement("button");
-      foldButton.className = "fold-button";
-      foldButton.innerHTML = "<svg width=16 height=16><path d='M4 8L8 12L12 8' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>";
-
-      thinkingContainerDiv = document.createElement("div");
-      thinkingContainerDiv.className = "thinking-container";
-
-      function toggleThinking() {
-        if (!thinkingContainerDiv) return;
-        const collapsed = thinkingContainerDiv.style.display === "none";
-        thinkingContainerDiv.style.display = collapsed ? "block" : "none";
-        foldButton.innerHTML = collapsed
-          ? "<svg width=16 height=16><path d='M4 8L8 12L12 8' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>"
-          : "<svg width=16 height=16><path d='M8 4L4 8L8 12' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>";
-        if (thinkingFinished) {
-          thinkingStatusDiv.textContent = collapsed ? "思考完毕（点击展开）" : "思考完毕（点击折叠）";
-        }
-      }
-
-      foldButton.addEventListener("click", toggleThinking);
-      thinkingStatusDiv.addEventListener("click", toggleThinking);
-
-      thinkingBlockDiv.appendChild(foldButton);
-      thinkingBlockDiv.appendChild(thinkingStatusDiv);
-      thinkingBlockDiv.appendChild(thinkingContainerDiv);
-
-      assistantMessageContentDiv.insertBefore(thinkingBlockDiv, assistantAnswerDiv);
-    }
-
-    function finalizeThinkingIfNeeded() {
-      if (!thinkingBlockDiv || thinkingFinished) return;
-      thinkingFinished = true;
-      thinkingContainerDiv.style.display = "none";
-      foldButton.innerHTML = "<svg width=16 height=16><path d='M8 4L4 8L8 12' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>";
-      thinkingStatusDiv.textContent = "思考完毕（点击展开）";
     }
 
     while (true) {
@@ -630,6 +881,33 @@ async function sendMessage() {
         try {
           const data = JSON.parse(line);
 
+          if (data && data.type === "meta") {
+            const enable = typeof data.thinking === "boolean" ? data.thinking : null;
+            if (enable !== null) {
+              thinkingEnabled = enable;
+              if (enable) {
+                ensureThinkingBlock();
+                setThinkingState("running");
+              } else {
+                stopThinkingTimer();
+                if (thinkingBlockDiv) {
+                  try {
+                    thinkingBlockDiv.remove();
+                  } catch (e) {
+                  }
+                  thinkingBlockDiv = null;
+                  thinkingBadgeDiv = null;
+                  thinkingStageText = null;
+                  thinkingProgressDiv = null;
+                  thinkingBodyPre = null;
+                  thinkingToggleBtn = null;
+                  thinkingCancelBtn = null;
+                }
+              }
+            }
+            continue;
+          }
+
           const chunkThinking =
             (data.message && data.message.thinking) ? data.message.thinking :
             (data.thinking ? data.thinking : "");
@@ -641,8 +919,8 @@ async function sendMessage() {
             "";
 
           if (data.type === "error" || data.error) {
-            hideTyping();
-            showError(data.message || data.error);
+            setThinkingState("error");
+            setContentError(data.message || data.error);
             errorSeen = true;
             sendBtn.disabled = false;
             continue;
@@ -650,11 +928,11 @@ async function sendMessage() {
 
           if (data.type === "done" || data.done === true) {
             doneSeen = true;
-            hideTyping();
             finalizeThinkingIfNeeded();
             if (assistantMessageDiv) {
               if (assistantMessage) {
                 renderAssistantMarkdown("force");
+                applyContentCollapseIfNeeded();
               }
             } else if (assistantMessage) {
               addMessage("assistant", assistantMessage);
@@ -669,28 +947,23 @@ async function sendMessage() {
 
           if (!streamStarted && (chunkThinking || chunkContent)) {
             streamStarted = true;
-            hideTyping();
           }
 
           if (chunkThinking) {
-            ensureThinkingBlock();
-            if (!isThinking && !thinkingFinished) {
-              isThinking = true;
-              thinkingContent = "";
+            if (thinkingEnabled !== false) {
+              thinkingEnabled = true;
+              ensureThinkingBlock();
             }
             if (!thinkingFinished) {
               thinkingContent += chunkThinking;
-              thinkingContainerDiv.textContent = thinkingContent;
+              if (thinkingBodyPre) thinkingBodyPre.textContent = thinkingContent;
               scrollIfNeeded();
             }
           }
 
           if (chunkContent) {
             ensureAssistantMessage();
-            if (isThinking) {
-              finalizeThinkingIfNeeded();
-              isThinking = false;
-            }
+            finalizeThinkingIfNeeded();
             assistantMessage += chunkContent;
             const boundary =
               chunkContent.includes("\n") ||
@@ -719,20 +992,66 @@ async function sendMessage() {
     }
 
     if (doneSeen && !streamStarted && !assistantMessage && !errorSeen) {
-      showError("模型未返回任何内容，请稍后重试或切换模型");
+      setThinkingState("error");
+      setContentError("未找到相关内容，可调整提问方式或切换模型。");
     }
   } catch (error) {
-    hideTyping();
-    showError(error.message || "发送消息失败");
+    const name = (error && error.name) ? error.name : "";
+    if (name === "AbortError") {
+      setThinkingState("canceled");
+      setContentCanceled();
+    } else {
+      setThinkingState("error");
+      setContentError(error.message || "发送消息失败");
+    }
     sendBtn.disabled = false;
   } finally {
+    stopThinkingTimer();
     currentImageBase64 = null;
-    imageInput.value = "";
-    imagePreview.src = "";
-    imagePreview.style.display = "none";
-    removeImageBtn.style.display = "none";
-    imageLabel.style.display = "block";
+    if (imageInput) {
+      imageInput.value = "";
+    }
+    if (imagePreview) {
+      imagePreview.src = "";
+      imagePreview.style.display = "none";
+    }
+    if (removeImageBtn) {
+      removeImageBtn.style.display = "none";
+    }
+    if (imageLabel) {
+      imageLabel.style.display = "block";
+    }
+    if (activeAbortController === abortController) {
+      activeAbortController = null;
+    }
   }
+}
+
+async function sendMessage() {
+  const message = messageInput.value.trim();
+  if (!message && !currentImageBase64) {
+    showError("请输入消息或选择图片");
+    return;
+  }
+
+  if (!sessionId) {
+    try {
+      await createNewConversation(true);
+    } catch (e) {
+      sessionId = generateSessionId();
+    }
+  }
+
+  const payload = {
+    sessionId,
+    message,
+    model: currentModel,
+    image: currentImageBase64
+  };
+  lastSendPayload = payload;
+
+  messageInput.value = "";
+  await runChatRequest(payload, { echoUser: true });
 }
 
 sendBtn.addEventListener("click", sendMessage);

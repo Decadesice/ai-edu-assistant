@@ -19,7 +19,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleException(Exception ex) {
         String message = ex.getMessage();
         if (message == null || message.isBlank()) {
-            message = "服务器内部错误";
+            String name = ex.getClass() == null ? "" : ex.getClass().getSimpleName();
+            message = name == null || name.isBlank() ? "服务器内部错误" : ("服务器内部错误: " + name);
         }
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("message", message));
     }

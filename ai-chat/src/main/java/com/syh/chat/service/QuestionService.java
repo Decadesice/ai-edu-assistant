@@ -26,6 +26,7 @@ public class QuestionService {
     private final WrongQuestionGroupRepository wrongQuestionGroupRepository;
     private final WrongQuestionAssignmentRepository wrongQuestionAssignmentRepository;
     private final BigModelService bigModelService;
+    private final SiliconFlowService siliconFlowService;
     private final RagRetrieveService ragRetrieveService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -35,6 +36,7 @@ public class QuestionService {
             WrongQuestionGroupRepository wrongQuestionGroupRepository,
             WrongQuestionAssignmentRepository wrongQuestionAssignmentRepository,
             BigModelService bigModelService,
+            SiliconFlowService siliconFlowService,
             RagRetrieveService ragRetrieveService
     ) {
         this.questionRepository = questionRepository;
@@ -42,13 +44,13 @@ public class QuestionService {
         this.wrongQuestionGroupRepository = wrongQuestionGroupRepository;
         this.wrongQuestionAssignmentRepository = wrongQuestionAssignmentRepository;
         this.bigModelService = bigModelService;
+        this.siliconFlowService = siliconFlowService;
         this.ragRetrieveService = ragRetrieveService;
     }
 
     @Transactional
     public List<QuestionResponse> generate(Long userId, Long documentId, String chapterHint, int count, String model, List<String> types) {
         int n = Math.max(1, Math.min(count, 10));
-        String effectiveModel = (model == null || model.isBlank()) ? "glm-4.6v-Flash" : model;
         List<String> normalizedTypes = normalizeTypes(types);
         Set<String> allowedTypes = new HashSet<>(normalizedTypes);
 
@@ -58,8 +60,23 @@ public class QuestionService {
 
         var ctx = ragRetrieveService.retrieveContext(userId, documentId, query, 6);
         StringBuilder ctxText = new StringBuilder();
+        int maxCtxChars = 7000;
         for (var s : ctx.getSnippets()) {
-            ctxText.append("- ").append(s.getContent()).append("\n");
+            if (ctxText.length() >= maxCtxChars) {
+                break;
+            }
+            String content = s == null ? "" : String.valueOf(s.getContent());
+            content = sanitizePromptText(content).trim();
+            if (content.isEmpty()) continue;
+            int remaining = maxCtxChars - ctxText.length();
+            if (remaining <= 0) break;
+            if (content.length() > remaining) {
+                content = content.substring(0, remaining);
+            }
+            ctxText.append("- ").append(content).append("\n");
+        }
+        if (ctxText.length() >= maxCtxChars) {
+            ctxText.append("\n（材料过长，已截断）\n");
         }
 
         String typeHint = String.join(", ", normalizedTypes);
@@ -86,7 +103,8 @@ public class QuestionService {
                     + "学习材料摘录：\n"
                     + ctxText;
 
-            BigModelService.BigModelReply reply = bigModelService.chatOnce(List.of(new com.syh.chat.model.Message("user", prompt)), effectiveModel).block();
+            prompt = sanitizePromptText(prompt);
+            BigModelService.BigModelReply reply = chatOnceWithFallback(List.of(new com.syh.chat.model.Message("user", prompt)), model);
             String raw = reply == null ? "" : reply.getContent();
             ArrayNode arr = parseArray(raw);
 
@@ -140,6 +158,127 @@ public class QuestionService {
             throw new IllegalArgumentException("题目生成失败：模型输出不可解析");
         }
         return out;
+    }
+
+    private boolean isOverloadedError(Throwable e) {
+        if (e == null) return false;
+        if (e instanceof org.springframework.web.reactive.function.client.WebClientResponseException w) {
+            int code = w.getStatusCode().value();
+            return code == 429 || code == 503;
+        }
+        String msg = e.getMessage() == null ? "" : e.getMessage();
+        return msg.contains("HTTP 429") || msg.contains("429") || msg.toLowerCase().contains("too many requests");
+    }
+
+    private boolean isDnsResolveError(Throwable e) {
+        if (e == null) return false;
+        Throwable cur = e;
+        int depth = 0;
+        while (cur != null && depth < 6) {
+            if (cur instanceof java.net.UnknownHostException) {
+                return true;
+            }
+            cur = cur.getCause();
+            depth++;
+        }
+        String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+        return msg.contains("failed to resolve") || msg.contains("unknownhost") || msg.contains("unknown host") || msg.contains("name or service not known");
+    }
+
+    private boolean isWebClientRequestError(Throwable e) {
+        return e instanceof org.springframework.web.reactive.function.client.WebClientRequestException;
+    }
+
+    private String networkFriendlyMessage(Throwable e) {
+        String raw = e == null || e.getMessage() == null ? "" : e.getMessage();
+        if (raw.contains("open.bigmodel.cn")) {
+            return "网络异常：无法连接 open.bigmodel.cn。请检查服务器网络/代理/防火墙或 Docker DNS 配置。";
+        }
+        if (raw.contains("api.siliconflow.cn")) {
+            return "网络异常：无法连接 api.siliconflow.cn。请检查服务器网络/代理/防火墙或 Docker DNS 配置。";
+        }
+        return "网络异常：无法连接大模型服务。请检查服务器网络/代理/防火墙或 Docker DNS 配置。";
+    }
+
+    private boolean isHttp400(Throwable e) {
+        if (e == null) return false;
+        if (e instanceof org.springframework.web.reactive.function.client.WebClientResponseException w) {
+            return w.getStatusCode().value() == 400;
+        }
+        String msg = e.getMessage() == null ? "" : e.getMessage();
+        return msg.contains("HTTP 400") || msg.contains(" 400 ") || msg.startsWith("400 ");
+    }
+
+    private String sanitizePromptText(String raw) {
+        if (raw == null || raw.isEmpty()) return "";
+        StringBuilder out = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c == '\n' || c == '\r' || c == '\t') {
+                out.append(c);
+                continue;
+            }
+            if (c < 0x20 || c == 0x7F) {
+                continue;
+            }
+            out.append(c);
+        }
+        return out.toString();
+    }
+
+    private String extractHttpBody(Throwable e) {
+        if (e instanceof org.springframework.web.reactive.function.client.WebClientResponseException w) {
+            String body = w.getResponseBodyAsString();
+            if (body == null) return "";
+            String s = body.replaceAll("\\s+", " ").trim();
+            if (s.length() > 400) {
+                s = s.substring(0, 400) + "...";
+            }
+            return s;
+        }
+        return "";
+    }
+
+    private BigModelService.BigModelReply chatOnceWithFallback(List<com.syh.chat.model.Message> messages, String rawModel) {
+        List<ModelPolicy.ModelCandidate> candidates = ModelPolicy.candidatesForNonVisionOnce(rawModel);
+        RuntimeException last = null;
+        for (int i = 0; i < candidates.size(); i++) {
+            ModelPolicy.ModelCandidate c = candidates.get(i);
+            try {
+                if (c.provider() == ModelPolicy.Provider.SILICONFLOW) {
+                    String s = siliconFlowService.chatOnce(messages, c.modelName()).block();
+                    return new BigModelService.BigModelReply(s == null ? "" : s, "");
+                }
+                return bigModelService.chatOnce(messages, c.modelName()).block();
+            } catch (RuntimeException e) {
+                last = e;
+                boolean canFallbackAuto = (ModelPolicy.isAuto(rawModel) || rawModel == null || rawModel.isBlank()) && i + 1 < candidates.size();
+                boolean canFallbackAdvanced = ModelPolicy.isAdvanced(rawModel) && i + 1 < candidates.size() && (isHttp400(e) || isWebClientRequestError(e) || isDnsResolveError(e));
+                boolean canFallback = canFallbackAuto || canFallbackAdvanced;
+                if (canFallback) {
+                    continue;
+                }
+                if (ModelPolicy.isAdvanced(rawModel) && isOverloadedError(e)) {
+                    throw new IllegalArgumentException("当前模型使用人数过多");
+                }
+                if (isDnsResolveError(e)) {
+                    throw new IllegalArgumentException("网络异常：域名解析失败（DNS）。如果通过 Docker 启动，请为 backend 容器配置 dns，或检查宿主机网络/DNS。");
+                }
+                if (isWebClientRequestError(e)) {
+                    throw new IllegalArgumentException(networkFriendlyMessage(e));
+                }
+                if (isHttp400(e)) {
+                    String body = extractHttpBody(e);
+                    String suffix = body.isBlank() ? "" : (" 详情: " + body);
+                    throw new IllegalArgumentException("题目生成失败：请求参数错误（HTTP 400）。可能是输入过长或模型不可用，请缩小章节范围/减少题量或切换 Auto/Advanced。" + suffix);
+                }
+                throw e;
+            }
+        }
+        if (last != null) {
+            throw last;
+        }
+        return null;
     }
 
     public List<QuestionResponse> listRecent(Long userId, Long documentId) {
@@ -455,4 +594,3 @@ public class QuestionService {
         return a;
     }
 }
-
