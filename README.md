@@ -1,230 +1,96 @@
-# AI 教育辅助学习系统（aismate.tech）
+# 🎓 AI-Chat (Edu Assistant)
 
-- 在线地址：https://aismate.tech
-- 技术关键词：RAG | 流式对话 | 异步入库（Kafka + Outbox）| 可观测性（Prometheus/Grafana）| 限流/重试/熔断
+> **你的 AI 备考搭子** —— 基于 RAG 检索增强生成的智能教育辅助系统。
 
-## 项目亮点
+![Java](https://img.shields.io/badge/Java-17%2B-ED8B00?style=flat-square&logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2-6DB33F?style=flat-square&logo=springboot&logoColor=white)
+![LangChain4j](https://img.shields.io/badge/LangChain4j-0.29-blue?style=flat-square)
+![Chroma](https://img.shields.io/badge/Chroma-Vector%20DB-cc5500?style=flat-square)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white)
 
-- RAG 知识库问答：PDF 上传 → 分块/向量化入库（Chroma）→ 检索增强生成
-- 流式对话体验：后端流式返回，前端逐段渲染
-- 长任务异步化：入库任务返回 taskId，支持进度查询与事件流（SSE）
-- 可靠投递设计：Kafka(KRaft) + Outbox Pattern，失败可重试、可追溯
-- 可观测性：Actuator/Micrometer 指标 + Prometheus 抓取 + Grafana 看板
-- 一键运行：Docker Compose 编排 MySQL/Redis/Chroma/Kafka/后端/前端/监控组件
+## 📖 项目简介
 
-## 异步入库链路一图（上传→入队→消费→状态机→DLQ→SSE/查询→指标）
+**AI-Chat** 是一个面向备考学习场景的 AI 辅助系统。它不仅仅是一个聊天机器人，更是一个能够理解你复习资料的智能助教。
 
-详细图文（含时序图）：[docs/async-ingest-diagram.md](docs/async-ingest-diagram.md)
+通过上传 PDF 教材或笔记，系统会自动解析并构建向量知识库。当你提问时，AI 会基于你的资料进行回答（RAG），确保答案的准确性和相关性。此外，它还能根据知识点自动生成练习题，并提供错题管理功能，帮助你高效备考。
 
-```mermaid
-flowchart LR
-  U[用户/前端] -->|上传 async| API[POST /api/knowledge/documents/upload-async]
-  U -->|查询| Q1[GET /api/knowledge/tasks/:taskId]
-  U -->|SSE| Q2[GET /api/knowledge/tasks/:taskId/events]
-  U -->|指标| M1[GET /actuator/prometheus]
+### ✨ 核心功能
 
-  API --> SVC[AsyncIngestTaskService]
-  SVC --> DOC[(knowledge_document)]
-  SVC --> TASK[(ingest_task)]
-  SVC -->|Redis| RS[(Redis Stream ingest:tasks)]
-  SVC -->|Kafka Outbox| OB[(outbox_event)]
+- 🧠 **知识库构建 (RAG)**：上传 PDF/笔记，自动切分、向量化入库，让 AI "读懂" 你的教材。
+- 💬 **智能问答**：基于上下文的流式对话，支持引用溯源，拒绝 AI 幻觉。
+- 📝 **智能出题**：根据指定知识点生成选择题/简答题，实时检验学习成果。
+- ❌ **错题本管理**：自动记录错题，提供 AI 解析与复习建议。
+- 📊 **学习统计**：可视化展示学习进度与知识点掌握情况。
+- 🛡️ **高可靠架构**：基于 Kafka + Outbox 模式的异步入库流程，确保数据零丢失。
 
-  RS --> W1[IngestTaskWorker]
-  W1 --> P[IngestTaskProcessor]
-  W1 -.失败不 ack, 留在 PEL.- RS
-  RC[Reclaimer] --> RS
+---
 
-  OB --> PUB[KafkaOutboxPublisher]
-  PUB --> K[(Kafka topic)]
-  K --> KC[KafkaConsumer]
-  KC --> P
+## 🛠️ 技术架构
 
-  P --> ING[KnowledgeIngestService]
-  ING --> CH[(Chroma)]
-  ING --> SEG[(knowledge_segment)]
-  P --> TASK
+- **后端框架**: Spring Boot 3 + Spring WebFlux
+- **AI 框架**: LangChain4j (整合 OpenAI/SiliconFlow/BigModel API)
+- **向量数据库**: Chroma
+- **关系型数据库**: MySQL 8
+- **缓存/消息**: Redis + Kafka
+- **监控**: Prometheus + Grafana + OpenTelemetry
+- **安全**: Spring Security + JWT
 
-  subgraph SM[ingest_task 状态机]
-    QUEUED --> RUNNING --> SUCCEEDED
-    RUNNING --> RETRYING --> RUNNING
-    RETRYING --> DEAD
-  end
-  TASK --- SM
-  DEAD --> DLQ[(Redis Stream ingest:tasks:dlq)]
+![Architecture](ai-chat/docs/async-ingest-diagram.md) *(点击查看详细架构图)*
 
-  Q1 --> TASK
-  Q2 --> TASK
-  M1 --> RS
-  M1 --> OB
-```
+---
 
-## License & 免责声明
+## 🚀 快速开始
 
-- License：MIT，见 [LICENSE](LICENSE)
-- 免责声明：本项目为个人学习/演示用途，按“现状”提供，不对稳定性/适用性作任何保证；如用于生产或商用，请自行评估、加固与合规处理
-- 安全说明：仓库中的示例 Key 均为占位符；请使用环境变量或本地 `.env` 注入真实配置，勿提交任何 secrets（`.env` 已在 `.gitignore` 中忽略）
+### 环境要求
 
-## 技术栈
+- JDK 17+
+- Maven 3.6+
+- Docker & Docker Compose (推荐)
 
-- 后端：Java 17 + Spring Boot 3 + Spring Security(JWT) + JPA/MySQL + Redis + Kafka + Flyway
-- AI/RAG：LangChain4j + Chroma + WebClient（对接大模型）
-- 观测：Actuator + Micrometer + Prometheus + Grafana + 结构化日志
-- 工程化：Docker Compose + GitHub Actions + Testcontainers
+### 本地启动
 
-## Performance（压测基线）
+1. **克隆仓库**
+   ```bash
+   git clone https://github.com/Decadesice/ai-edu-assistant.git
+   cd ai-edu-assistant
+   ```
 
-- k6（20 VU / 30s）覆盖链路：注册 / 鉴权会话列表 / 创建会话
-- 压测结果（端到端）：成功率 100%，吞吐 180 req/s，P95 延迟 24ms
-- 观测指标（服务端）：req/s 峰值约 160+，P95 处理耗时约 9ms
+2. **配置环境变量**
+   复制 `ai-chat/src/main/resources/application.properties` 或直接设置环境变量：
+   ```bash
+   export MYSQL_PASSWORD=your_password
+   export SILICONFLOW_API_KEY=sk-xxxx  # 用于 AI 模型服务
+   ```
 
-![reqs](docs/perf/reqs.png)
-![p95](docs/perf/p95.png)
+3. **启动依赖服务** (MySQL, Redis, Chroma)
+   ```bash
+   docker-compose up -d mysql redis chroma
+   ```
 
-## Quick Verify
+4. **运行后端**
+   ```bash
+   cd ai-chat
+   mvn spring-boot:run
+   ```
 
-### 1) 跑后端测试（包含可靠性用例）
+### Docker 部署
 
 ```bash
-mvn -f ai-chat/pom.xml test
+# 完整一键部署
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
-说明：
-- Docker 可用时会跑 Testcontainers 集成测试（如 Redis Streams 失败→重试→死信）。
+---
 
-### 2) 启动一套本地环境（Docker Compose）
+## ✅ 可靠性验证
 
-```bash
-docker compose up -d --build
-```
+本项目实现了高可靠的异步文档入库流程（Upload -> Kafka -> Consumer -> Vector DB），并包含完整的测试验证。
 
-启动后可访问：
-- Swagger：http://localhost:8081/swagger-ui/index.html
-- Prometheus：http://localhost:9090/
-- Grafana：http://localhost:3000/（默认 admin/admin）
+- **设计文档**: [异步入库可靠性设计](ai-chat/docs/reliability.md)
+- **测试证据**: [查看测试截图](ai-chat/docs/证据截图/)
 
-### 3) 验证可靠性与指标
+---
 
-- 异步入库可靠性（Redis Streams + Kafka Outbox）：[reliability.md](ai-chat/docs/reliability.md)
-- Prometheus 指标：访问 `http://localhost:8081/actuator/prometheus`，检索 `ingest_task_process_total`、`ingest_stream_length`、`ingest_stream_pending`、`outbox_backlog`、`outbox_publish_total`
+## 📄 License
 
-### 4) 证据截图（验真）
-
-已整理 4 张“可复现/可验真”的关键截图：见 [docs/证据截图](docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE)。
-
-![IngestRedisStreamReliabilityIT](docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/IngestRedisStreamReliabilityIT.png)
-![outbox_publish_total](docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/outbox_publish_total.png)
-![DEAD + attemptCount=2](docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/DEAD%20%2B%20attemptCount%3D2.png)
-![XLEN ingesttasksdlq = 4 + ingest_task_transition](docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/XLEN%20ingesttasksdlq%20%3D%204%20%2B%20ingest_task_transition.png)
-
-本仓库包含一个前后端分离的 Web 应用：
-- **后端**：`ai-chat/`（Spring Boot，提供鉴权、对话、知识库、错题本、题目生成、统计等 API）
-- **前端**：`ai-chat-frontend/`（React + Vite，调用后端 API）
-
-## 目录结构
-
-```text
-ai-chat/                 # Java 后端（Spring Boot）
-ai-chat-frontend/        # 前端（React + Vite）
-SSL_Nginx_aismate.tech_部署流程.md  # Nginx + SSL 部署记录
-```
-
-## 本地运行（快速）
-
-### 1) 启动后端
-
-要求：Java 17+、Maven 3.6+、MySQL、Redis（以及可选的 Chroma / 向量化与大模型相关服务）。
-
-```bash
-cd ai-chat
-mvn spring-boot:run
-```
-
-默认端口：`8081`（可用环境变量 `APP_PORT` 覆盖）。
-
-### 2) 启动前端
-
-```bash
-cd ai-chat-frontend
-npm install
-npm run dev -- --host
-```
-
-默认端口：`5174`。
-
-## Docker Compose 一键启动
-
-仓库根目录提供 `docker-compose.yml`，包含 MySQL / Redis / Chroma / Kafka / 后端 / 前端 / Prometheus / Grafana。
-
-建议先复制环境变量模板（不含敏感信息）：
-
-```bash
-copy .env.example .env
-```
-
-```bash
-docker compose up -d --build
-```
-
-启动后可访问：
-
-- 前端：http://localhost:5174/
-- Swagger：http://localhost:8081/swagger-ui/index.html
-- Prometheus：http://localhost:9090/
-- Grafana：http://localhost:3000/（默认 admin/admin）
-
-
-## 入库队列（Redis Streams / Kafka）
-
-- 默认：Redis Streams（`INGEST_QUEUE=redis`）
-- 可选：Kafka + Outbox（`INGEST_QUEUE=kafka`，并配置 `KAFKA_BOOTSTRAP_SERVERS`）
-
-Docker Compose 默认会启用 Kafka 以便本地演示。
-
-如果你的网络访问 Docker Hub 不稳定，可将 `docker-compose.env.example` 里的镜像站前缀配置合并到你的 `.env`（或直接把其中的 `*_IMAGE` 行复制进去），再启动即可。
-
-## 常见问题（FAQ）
-
-### 1) MySQL 端口冲突（3306 被占用）
-
-Docker Compose 默认使用 `MYSQL_PORT=3306` 映射到宿主机。如果本机已有 MySQL 占用 3306，可在 `.env` 里改为 3307：
-
-```bash
-MYSQL_PORT=3307
-```
-
-对应地：
-- 使用 Docker Compose 运行后端：无需改代码（后端容器内走 `mysql:3306`）
-- 本地直跑后端（非容器）：把 `MYSQL_URL` 改为 `jdbc:mysql://127.0.0.1:3307/...`（或用环境变量覆盖）
-
-### 2) dev 环境 tracing 导出失败（常见 4318 连接错误）
-
-默认会把 trace 导出到 `http://127.0.0.1:4318/v1/traces`（OTLP HTTP）。如果你本地没起 OpenTelemetry Collector，会看到一段 error/warn 日志但不影响功能。
-
-关闭方式（二选一即可）：
-- 设置采样为 0（推荐）：`TRACING_SAMPLING_PROBABILITY=0`
-- 或临时改 endpoint：`OTLP_TRACES_ENDPOINT=`（置空）/ 指向可用的 collector
-
-## 部署与反向代理（Nginx）
-
-- 推荐 Nginx 托管前端静态文件，并将 `/api/` 反向代理到后端 `127.0.0.1:8081`
-- HTTPS 证书与 Nginx 配置流程见：`SSL_Nginx_aismate.tech_部署流程.md`
-
-## 文档
-
-- 后端快速上手：`ai-chat/QUICKSTART.md`
-- 后端架构说明：`ai-chat/ARCHITECTURE.md`
-- 异步入库可靠性：`ai-chat/docs/reliability.md`
-
-## Git 工作流（项目管理约定）
-
-- 主干保护：`main` 仅允许通过 PR 合并（禁止直接 push），默认 Squash and merge
-- Issue/PR 模板：已配置 `.github/ISSUE_TEMPLATE/*` 与 `.github/PULL_REQUEST_TEMPLATE.md`
-- 分支命名：
-  - UI 主题：`feature/ui-theme-redesign`
-  - 定向 RAG：`feature/rag-doc-scope`
-  - Bug 修复：`fix/<short-desc>`
-  - 文档/CI：`chore/<short-desc>`、`docs/<short-desc>`
-- 提交规范：Conventional Commits（如 `feat:` / `fix:` / `docs:` / `test:` / `db:`）
-- PR 要求：描述包含变更概览、验证方式、影响范围/回滚、截图/录屏（UI 变更必需）；CI 通过后再合并
-- Release：语义化版本；`v0.3.0` 用于“RAG 知识库问答”等用户可见功能
-- 安全：禁止提交 `.env`、密钥、token、证书等敏感文件；README 示例 Key 必须使用占位符（如 `YOUR_API_KEY`）
+MIT License © 2024 Decadesice
