@@ -1,95 +1,81 @@
-# 🎓 AI-Chat (Edu Assistant)
+# ai-chat（后端）
 
-> **你的 AI 备考搭子** —— 基于 RAG 检索增强生成的智能教育辅助系统。
+`ai-chat` 是 AI 教育辅助学习系统的后端服务（Spring Boot），提供鉴权、对话、知识库、错题本、题目生成、学习统计等 API。
 
-![Java](https://img.shields.io/badge/Java-17%2B-ED8B00?style=flat-square&logo=openjdk&logoColor=white)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2-6DB33F?style=flat-square&logo=springboot&logoColor=white)
-![LangChain4j](https://img.shields.io/badge/LangChain4j-0.29-blue?style=flat-square)
-![Chroma](https://img.shields.io/badge/Chroma-Vector%20DB-cc5500?style=flat-square)
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white)
+## 环境要求
 
-## 📖 项目简介
-
-**AI-Chat** 是一个面向备考学习场景的 AI 辅助系统。它不仅仅是一个聊天机器人，更是一个能够理解你复习资料的智能助教。
-
-通过上传 PDF 教材或笔记，系统会自动解析并构建向量知识库。当你提问时，AI 会基于你的资料进行回答（RAG），确保答案的准确性和相关性。此外，它还能根据知识点自动生成练习题，并提供错题管理功能，帮助你高效备考。
-
-### ✨ 核心功能
-
-- 🧠 **知识库构建 (RAG)**：上传 PDF/笔记，自动切分、向量化入库，让 AI "读懂" 你的教材。
-- 💬 **智能问答**：基于上下文的流式对话，支持引用溯源，拒绝 AI 幻觉。
-- 📝 **智能出题**：根据指定知识点生成选择题/简答题，实时检验学习成果。
-- ❌ **错题本管理**：自动记录错题，提供 AI 解析与复习建议。
-- 📊 **学习统计**：可视化展示学习进度与知识点掌握情况。
-- 🛡️ **高可靠架构**：基于 Kafka + Outbox 模式的异步入库流程，确保数据零丢失。
-
----
-
-## 🛠️ 技术架构
-
-- **后端框架**: Spring Boot 3 + Spring WebFlux
-- **AI 框架**: LangChain4j (整合 OpenAI/SiliconFlow/BigModel API)
-- **向量数据库**: Chroma
-- **关系型数据库**: MySQL 8
-- **缓存/消息**: Redis + Kafka
-- **监控**: Prometheus + Grafana + OpenTelemetry
-- **安全**: Spring Security + JWT
-
-![Architecture](../docs/async-ingest-diagram.md) *(点击查看详细架构图)*
-
----
-
-## 🚀 快速开始
-
-### 环境要求
-
-- JDK 17+
+- Java 17+
 - Maven 3.6+
-- Docker & Docker Compose (推荐)
+- MySQL（必需）
+- Redis（必需）
+- Chroma（可选，用于向量库/检索增强）
 
-### 本地启动
+## 配置（环境变量）
 
-1. **克隆仓库**
-   ```bash
-   git clone https://github.com/Decadesice/ai-edu-assistant.git
-   cd ai-edu-assistant
-   ```
+后端默认从 `src/main/resources/application.properties` 读取配置，并支持用环境变量覆盖。常用环境变量：
 
-2. **配置环境变量**
-   复制 `src/main/resources/application.properties` 或直接设置环境变量：
-   ```bash
-   export MYSQL_PASSWORD=your_password
-   export SILICONFLOW_API_KEY=sk-xxxx  # 用于 AI 模型服务
-   ```
+- `APP_PORT`：服务端口（默认 8081）
+- `APP_ADDRESS`：绑定地址（默认 0.0.0.0）
+- `MYSQL_URL` / `MYSQL_USER` / `MYSQL_PASSWORD`
+- `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB`
+- `CHROMA_BASE_URL`
+- `BIGMODEL_API_KEY`（可选）
+- `SILICONFLOW_API_KEY`（可选）
+- `CORS_ALLOWED_ORIGINS` / `CORS_ALLOWED_ORIGIN_PATTERNS`（当你前后端跨域部署时需要）
 
-3. **启动依赖服务** (MySQL, Redis, Chroma)
-   ```bash
-   docker-compose up -d mysql redis chroma
-   ```
+安全提示：
+- 示例 Key 均为占位符；真实配置建议通过环境变量或本地 `.env` 注入
+- 不要提交任何敏感信息（`.env` / token / 证书 / 密钥 等）
 
-4. **运行后端**
-   ```bash
-   mvn spring-boot:run
-   ```
+开发环境噪音（tracing 导出失败）：
+- 默认 trace 导出 endpoint 为 `http://127.0.0.1:4318/v1/traces`（OTLP HTTP）
+- 若本地未启动 collector，可设置 `TRACING_SAMPLING_PROBABILITY=0` 关闭采样以避免误解为“系统不稳定”
 
-### Docker 部署
+## 启动
 
 ```bash
-# 完整一键部署
-docker-compose -f docker-compose.prod.yml up -d
+mvn spring-boot:run
 ```
 
----
+打包：
 
-## ✅ 可靠性验证
+```bash
+mvn clean package
+java -jar target/*.jar
+```
 
-本项目实现了高可靠的异步文档入库流程（Upload -> Kafka -> Consumer -> Vector DB），并包含完整的测试验证。
+## Quick Verify
 
-- **设计文档**: [异步入库可靠性设计](docs/reliability.md)
-- **测试证据**: [查看测试截图](docs/证据截图/)
+### 1) 跑测试
 
----
+```bash
+mvn test
+```
 
-## 📄 License
+说明：
+- Docker 可用时会跑 Testcontainers 集成测试（例如 `IngestRedisStreamReliabilityIT`）。
 
-MIT License © 2024 Decadesice
+### 2) 验证异步入库可靠性（失败→重试→死信）
+
+- 一图看懂链路（上传→入队→消费→状态机→DLQ→SSE/查询→指标）：[docs/async-ingest-diagram.md](../docs/async-ingest-diagram.md)
+- 文档与复现步骤见：`docs/reliability.md`
+- 典型验证入口：
+  - `POST /api/knowledge/documents/upload-async`（拿到 taskId）
+  - `GET /api/knowledge/tasks/{taskId}`
+  - `GET /api/knowledge/tasks/{taskId}/events`（SSE）
+  - `/actuator/prometheus`（指标）
+
+### 3) 证据截图（验真）
+
+仓库根目录 `docs/证据截图` 已包含“测试通过 / outbox 指标 / DEAD 状态 / DLQ+transition”四张验真截图（本 README 直接展示如下）：
+
+![IngestRedisStreamReliabilityIT](../docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/IngestRedisStreamReliabilityIT.png)
+![outbox_publish_total](../docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/outbox_publish_total.png)
+![DEAD + attemptCount=2](../docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/DEAD%20%2B%20attemptCount%3D2.png)
+![XLEN ingesttasksdlq = 4 + ingest_task_transition](../docs/%E8%AF%81%E6%8D%AE%E6%88%AA%E5%9B%BE/XLEN%20ingesttasksdlq%20%3D%204%20%2B%20ingest_task_transition.png)
+
+## 相关文档
+
+- 快速上手：`QUICKSTART.md`
+- 架构说明：`ARCHITECTURE.md`
+- 异步入库可靠性：`docs/reliability.md`
