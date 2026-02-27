@@ -88,7 +88,7 @@ docker-compose -f docker-compose.prod.yml up -d
 本项目实现了高可靠的异步文档入库流程（Upload -> Kafka -> Consumer -> Vector DB），并包含完整的测试验证。
 
 - **设计文档**: [异步入库可靠性设计](ai-chat/docs/reliability.md)
-- **测试证据**: [查看测试截图](docs/证据截图/)
+- **测试证据**: [查看测试截图](docs/evidence.md)
 
 ---
 
