@@ -34,8 +34,8 @@
 - **缓存/消息**: Redis + Kafka
 - **监控**: Prometheus + Grafana + OpenTelemetry
 - **安全**: Spring Security + JWT
-
-![Architecture](docs/async-ingest-diagram.md) *(点击查看详细架构图)*
+- **详细设计：[架构图 (Mermaid)
+  ](docs/async-ingest-diagram.md)**
 
 ---
 
@@ -50,24 +50,25 @@
 ### 本地启动
 
 1. **克隆仓库**
+
    ```bash
    git clone https://github.com/Decadesice/ai-edu-assistant.git
    cd ai-edu-assistant
    ```
-
 2. **配置环境变量**
    复制 `ai-chat/src/main/resources/application.properties` 或直接设置环境变量：
+
    ```bash
    export MYSQL_PASSWORD=your_password
    export SILICONFLOW_API_KEY=sk-xxxx  # 用于 AI 模型服务
    ```
-
 3. **启动依赖服务** (MySQL, Redis, Chroma)
+
    ```bash
    docker-compose up -d mysql redis chroma
    ```
-
 4. **运行后端**
+
    ```bash
    cd ai-chat
    mvn spring-boot:run
