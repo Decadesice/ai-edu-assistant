@@ -15,7 +15,9 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.RedisTemplate;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -45,7 +47,8 @@ public class KnowledgeIngestService {
     private final BigModelService bigModelService;
     private final String summaryModelName;
     private final MeterRegistry meterRegistry;
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final StringRedisTemplate redisTemplate;
+    private final ObjectMapper objectMapper;
 
     public KnowledgeIngestService(
             KnowledgeDocumentRepository documentRepository,
@@ -56,7 +59,8 @@ public class KnowledgeIngestService {
             BigModelService bigModelService,
             @Value("${knowledge.summary-model:Auto}") String summaryModelName,
             MeterRegistry meterRegistry,
-            RedisTemplate<String, Object> redisTemplate
+            StringRedisTemplate redisTemplate,
+            ObjectMapper objectMapper
     ) {
         this.documentRepository = documentRepository;
         this.segmentRepository = segmentRepository;
@@ -67,6 +71,7 @@ public class KnowledgeIngestService {
         this.summaryModelName = summaryModelName;
         this.meterRegistry = meterRegistry;
         this.redisTemplate = redisTemplate;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional
@@ -339,16 +344,28 @@ public class KnowledgeIngestService {
         }
 
         String key = buildSummaryTaskKey(userId, documentId);
-        Object v = redisTemplate.opsForValue().get(key);
-        if (v instanceof Map<?, ?> m) {
-            Object status = m.get("status");
-            Object error = m.get("error");
-            if (status != null) {
-                return Map.of(
-                        "status", String.valueOf(status),
-                        "summary", doc.getSummary() == null ? "" : doc.getSummary(),
-                        "error", error == null ? "" : String.valueOf(error)
-                );
+        String json = null;
+        try {
+            json = redisTemplate.opsForValue().get(key);
+        } catch (Exception e) {
+            // Ignore redis connection/serialization errors
+        }
+
+        if (json != null) {
+            try {
+                Map<?, ?> m = objectMapper.readValue(json, Map.class);
+                Object status = m.get("status");
+                Object error = m.get("error");
+                if (status != null) {
+                    return Map.of(
+                            "status", String.valueOf(status),
+                            "summary", doc.getSummary() == null ? "" : doc.getSummary(),
+                            "error", error == null ? "" : String.valueOf(error)
+                    );
+                }
+            } catch (Exception e) {
+                // Invalid JSON in redis, ignore
+                redisTemplate.delete(key);
             }
         }
 
@@ -367,7 +384,22 @@ public class KnowledgeIngestService {
                 "status", "RUNNING",
                 "updatedAt", System.currentTimeMillis()
         );
-        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(key, init, Duration.ofHours(1));
+        String initJson;
+        try {
+            initJson = objectMapper.writeValueAsString(init);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("JSON serialization error", e);
+        }
+
+        Boolean acquired;
+        try {
+            acquired = redisTemplate.opsForValue().setIfAbsent(key, initJson, Duration.ofHours(1));
+        } catch (Exception e) {
+            // If key exists but holds wrong type (e.g. from previous version), delete and retry
+            redisTemplate.delete(key);
+            acquired = redisTemplate.opsForValue().setIfAbsent(key, initJson, Duration.ofHours(1));
+        }
+
         if (Boolean.FALSE.equals(acquired)) {
             return getSummaryTaskState(userId, documentId);
         }
@@ -375,18 +407,22 @@ public class KnowledgeIngestService {
         Mono.fromRunnable(() -> {
                     try {
                         String s = getOrGenerateSummary(userId, documentId);
-                        redisTemplate.opsForValue().set(key, Map.of(
+                        Map<String, Object> doneMap = Map.of(
                                 "status", "DONE",
                                 "updatedAt", System.currentTimeMillis(),
                                 "summaryLen", s == null ? 0 : s.length()
-                        ), Duration.ofHours(24));
+                        );
+                        redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(doneMap), Duration.ofHours(24));
                     } catch (Exception e) {
                         String msg = e.getMessage() == null ? "摘要生成失败" : e.getMessage();
-                        redisTemplate.opsForValue().set(key, Map.of(
-                                "status", "ERROR",
-                                "updatedAt", System.currentTimeMillis(),
-                                "error", msg
-                        ), Duration.ofHours(1));
+                        try {
+                            Map<String, Object> errorMap = Map.of(
+                                    "status", "ERROR",
+                                    "updatedAt", System.currentTimeMillis(),
+                                    "error", msg
+                            );
+                            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(errorMap), Duration.ofHours(1));
+                        } catch (Exception ignored) {}
                     }
                 })
                 .subscribeOn(Schedulers.boundedElastic())
