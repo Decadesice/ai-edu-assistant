@@ -1,0 +1,47 @@
+name: Feature Request
+description: 提交一个功能建议（最好说明用户价值与验收标准）
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请尽量描述清楚“要解决什么问题”，并给出可验收的标准。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 需求背景/痛点
+      placeholder: 这个功能要解决什么问题？谁会用？
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 建议方案
+      placeholder: 你希望怎么做？涉及哪些页面/接口？
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 优先级
+      options:
+        - P0（紧急）
+        - P1（重要）
+        - P2（一般）
+    validations:
+      required: true
+

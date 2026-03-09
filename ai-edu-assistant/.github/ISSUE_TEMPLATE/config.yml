@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 使用与配置问题
+    url: https://github.com/Decadesice/ai-edu-assistant/discussions
+    about: 适合提问与讨论，不一定是 Bug/Feature。
