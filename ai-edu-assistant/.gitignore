@@ -1,0 +1,43 @@
+# Java / Maven
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Node / Vite
+**/node_modules/
+**/dist/
+**/.vite/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Secrets / certs (avoid accidental commits)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.p12
+*nginx*.zip
+_ssl_unzip_*/
+
+# Runtime data (generated locally)
+/data/
+/query
+/query/
+/ai-chat/data/
