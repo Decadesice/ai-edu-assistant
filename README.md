@@ -78,7 +78,7 @@
 
 ```bash
 # 完整一键部署
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose up -d --build
 ```
 
 ---
